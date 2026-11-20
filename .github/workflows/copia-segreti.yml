@@ -1,0 +1,183 @@
+# Copia UNA TANTUM dei segreti da illvaleee/app-monete (privato) negli environment di illvaleee/eurodex.
+#
+# Si avvia solo a mano: Actions → "Copia segreti (una tantum)" → Run workflow, su main.
+# Prima servono: gli environment pubblicazione, catalogo e copia-segreti (tutti solo per main) e, dentro
+# copia-segreti, il Secret TOKEN_COPIA: token fine-grained di 1 giorno, solo app-monete ed eurodex, con
+# Contents: read ed Environments: read and write.
+# Dopo: deploy key nuova nella pagina di download (la parte pubblica è nel riassunto del giro), token ed
+# environment copia-segreti cancellati, e questo file tolto con una PR.
+#
+# Regole: non stampa MAI un valore, nemmeno trasformato (base64, pezzi, lunghezze). Niente checkout, niente
+# action, niente artifact, niente file nella cartella di lavoro: i file stanno un attimo in una cartella di
+# $RUNNER_TEMP leggibile solo da questo job, che si cancella alla fine anche in caso di errore. Nel log e nel
+# riassunto escono solo nomi, esiti e la parte PUBBLICA della deploy key nuova.
+# Prova in locale con file finti: scripts/prova-copia-segreti.py, nel ramo claude3/copia-segreti di app-monete.
+name: Copia segreti (una tantum)
+
+on:
+  workflow_dispatch:
+    inputs:
+      rifai_deploy_key:
+        description: "Crea una deploy key nuova anche se c'è già (poi va rimessa nella pagina di download)"
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: copia-segreti
+  cancel-in-progress: false
+
+jobs:
+  copia:
+    if: github.repository == 'illvaleee/eurodex' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # il punto finale è voluto: su GitHub l'environment è stato creato come "copia-segreti." (non si può rinominare)
+    environment: 'copia-segreti.'
+    env:
+      GH_TOKEN: ${{ secrets.TOKEN_COPIA }}
+      SORGENTE: illvaleee/app-monete
+      # main di app-monete: i file in keystore/ e scripts/numista-keys.txt sono identici su riorganizzazione
+      COMMIT_SORGENTE: 7fd48c60c5ebbe8532f7c2ee8d00869680390140
+      DESTINAZIONE: illvaleee/eurodex
+      RIFAI_DEPLOY_KEY: ${{ inputs.rifai_deploy_key }}
+    steps:
+      - name: Copia i segreti negli environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s inherit_errexit
+          umask 077
+
+          # ogni messaggio è scritto qui: mai il contenuto di un file o di una variabile
+          errore() { echo "::error title=Copia segreti::$1"; exit 1; }
+          [ -n "${GH_TOKEN:-}" ] || errore "manca TOKEN_COPIA nell'environment copia-segreti. (con il punto finale)"
+          keytool="${JAVA_HOME:+$JAVA_HOME/bin/}keytool"
+
+          lavoro="$(mktemp -d "${RUNNER_TEMP:?}/segreti.XXXXXXXX")"
+          trap 'rm -rf -- "$lavoro"' EXIT
+
+          # un file di app-monete al commit fisso, dritto in $lavoro (in caso di errore gh scrive solo il codice HTTP)
+          leggi() {
+            gh api -H 'Accept: application/vnd.github.raw' \
+              "repos/$SORGENTE/contents/$1?ref=$COMMIT_SORGENTE" > "$lavoro/$2" \
+              || errore "non riesco a leggere $1 da app-monete (il token vede app-monete con Contents: read?)"
+            [ -s "$lavoro/$2" ] || errore "$1 è vuoto"
+          }
+
+          echo "1. Lettura da app-monete (commit ${COMMIT_SORGENTE:0:7})"
+          leggi keystore/collezione-euro.jks ks
+          leggi .github/workflows/apk.yml apk.yml
+          leggi .github/workflows/sincronizzazione.yml sinc.yml
+          leggi keystore/firebase-invio.json firebase.json
+          leggi scripts/numista-keys.txt numista.txt
+          echo "   letti 5 file"
+
+          echo "2. Controlli, prima di creare qualsiasi Secret"
+          # la password: l'unica riga "KS_PASS: <valore>" di apk.yml (passaggio "Firma"); stessa password per la chiave
+          python3 -I - "$lavoro" <<'PY' 2>/dev/null || errore "password del keystore non trovata in apk.yml"
+          import pathlib, re, sys
+          cartella = pathlib.Path(sys.argv[1])
+          apk = (cartella / "apk.yml").read_text(encoding="utf-8")
+          sinc = (cartella / "sinc.yml").read_text(encoding="utf-8")
+          senza_virgolette = lambda s: s[1:-1] if len(s) >= 2 and s[0] == s[-1] and s[0] in "'\"" else s
+          righe = re.findall(r"(?m)^\s*KS_PASS:\s*(\S+)\s*$", apk)
+          if len(righe) != 1:
+              print(f"::error title=Copia segreti::in apk.yml le righe 'KS_PASS:' sono {len(righe)}, ne serve una sola")
+              sys.exit(1)
+          valore = senza_virgolette(righe[0])
+          if not valore or valore.startswith("$"):
+              print("::error title=Copia segreti::la riga 'KS_PASS:' di apk.yml non contiene un valore scritto")
+              sys.exit(1)
+          in_linea = [senza_virgolette(x) for x in re.findall(r"KS_PASS=(\S+)", apk + "\n" + sinc)]
+          uguali = sum(1 for x in in_linea if x == valore)
+          print(f"   password: trovata; righe KS_PASS= in linea con lo stesso valore: {uguali} su {len(in_linea)}")
+          if uguali != len(in_linea):
+              print("::warning title=Copia segreti::una riga KS_PASS= in linea ha un valore diverso (vale quella del passaggio Firma)")
+          (cartella / "password").write_text(valore, encoding="utf-8")
+          PY
+
+          "$keytool" -list -keystore "$lavoro/ks" -storepass:file "$lavoro/password" -alias collezione >/dev/null 2>&1 \
+            || errore "il keystore non si apre con la password di apk.yml, oppure manca la chiave 'collezione'"
+          "$keytool" -certreq -keystore "$lavoro/ks" -storepass:file "$lavoro/password" -alias collezione \
+            -keypass:file "$lavoro/password" -file /dev/null >/dev/null 2>&1 \
+            || errore "la chiave 'collezione' non si apre con la stessa password del keystore"
+          echo "   keystore: si apre, chiave 'collezione' compresa"
+
+          python3 -I - "$lavoro/firebase.json" <<'PY' 2>/dev/null || errore "keystore/firebase-invio.json non è un account di servizio valido"
+          import json, sys
+          d = json.load(open(sys.argv[1], encoding="utf-8"))
+          if not (d.get("type") == "service_account" and d.get("private_key") and d.get("client_email")):
+              sys.exit(1)
+          PY
+          echo "   firebase-invio.json: account di servizio"
+
+          chiavi="$(grep -c '[^[:space:]]' "$lavoro/numista.txt" || true)"
+          [ "$chiavi" -ge 1 ] || errore "scripts/numista-keys.txt non ha righe"
+          echo "   numista-keys.txt: $chiavi righe non vuote"
+          [ "$chiavi" -eq 7 ] || echo "::warning title=Copia segreti::le chiavi Numista attese erano 7, ce ne sono $chiavi"
+
+          # gli environment devono esserci, e il token deve poterci scrivere (la chiave pubblica serve per cifrare)
+          for env in pubblicazione catalogo; do
+            gh api "repos/$DESTINAZIONE/environments/$env/secrets/public-key" >/dev/null \
+              || errore "manca l'environment $env in eurodex, oppure il token non ha Environments: read and write"
+          done
+          echo "   environment pubblicazione e catalogo: ci sono"
+
+          # deploy key: una nuova solo se non c'è già (rifarla vuol dire rimetterla nella pagina di download)
+          # (grep senza -q: legge tutto, così con pipefail gh non riceve SIGPIPE)
+          ha_deploy() { gh secret list --env "$1" --repo "$DESTINAZIONE" --json name --jq '.[].name' | grep -x DEPLOY_KEY >/dev/null; }
+          nuova_deploy=1
+          if [ "$RIFAI_DEPLOY_KEY" != "true" ]; then
+            if ha_deploy pubblicazione && ha_deploy catalogo; then
+              nuova_deploy=0
+            elif ha_deploy pubblicazione || ha_deploy catalogo; then
+              errore "DEPLOY_KEY c'è in un solo environment: riavvia con 'rifai_deploy_key' acceso"
+            fi
+          fi
+          if [ "$nuova_deploy" = 1 ]; then
+            ssh-keygen -q -t ed25519 -N '' -C "eurodex $(date -u +%Y-%m-%d)" -f "$lavoro/deploy" >/dev/null
+            echo "   deploy key: nuova, generata qui"
+          else
+            echo "   deploy key: c'è già in tutti e due gli environment, la lascio com'è"
+          fi
+
+          echo "3. Creazione dei Secret"
+          metti() { # metti NOME ENVIRONMENT FILE: il valore passa solo dallo standard input di gh
+            gh secret set "$1" --env "$2" --repo "$DESTINAZIONE" < "$3" >/dev/null \
+              || errore "non riesco a creare $1 in $2"
+            echo "   creato: $2 / $1"
+          }
+          base64 -w0 "$lavoro/ks" > "$lavoro/ks.b64"
+          metti KEYSTORE_JKS_B64 pubblicazione "$lavoro/ks.b64"
+          metti KEYSTORE_PASSWORD pubblicazione "$lavoro/password"
+          metti FIREBASE_INVIO_JSON pubblicazione "$lavoro/firebase.json"
+          metti FIREBASE_INVIO_JSON catalogo "$lavoro/firebase.json"
+          metti NUMISTA_KEYS catalogo "$lavoro/numista.txt"
+          if [ "$nuova_deploy" = 1 ]; then
+            metti DEPLOY_KEY pubblicazione "$lavoro/deploy"
+            metti DEPLOY_KEY catalogo "$lavoro/deploy"
+          fi
+
+          echo "4. Riassunto"
+          {
+            echo "## Copia segreti: fatto"
+            echo
+            echo "Secret presenti adesso (solo i nomi):"
+            for env in pubblicazione catalogo; do
+              echo "- **$env**: $(gh secret list --env "$env" --repo "$DESTINAZIONE" --json name --jq '[.[].name] | sort | join(", ")')"
+            done
+            echo
+            if [ "$nuova_deploy" = 1 ]; then
+              echo "### Deploy key nuova: parte pubblica"
+              echo "Da incollare in **collezione-euro-download → Settings → Deploy keys → Add deploy key**, con **Allow write access**. Poi cancella la deploy key vecchia."
+              echo
+              echo '```'
+              cat "$lavoro/deploy.pub"
+              echo '```'
+            fi
+            echo
+            echo "Adesso: cancella il token TOKEN_COPIA e l'environment copia-segreti. (con il punto finale), poi togli questo workflow con una PR."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "   fatto: i dettagli sono nel riassunto del giro"

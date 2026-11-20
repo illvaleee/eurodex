@@ -1,0 +1,84 @@
+name: Server della sincronizzazione
+
+# Il "postino" che avvisa gli altri dispositivi quando la collezione cambia (Firebase: database + funzione).
+# Si installa da solo quando cambiano i file in firebase/, oppure a mano.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      [
+        'firebase/**',
+        'firebase.json',
+        'scripts/firebase-prepara.py',
+        'scripts/prova-sincronizzazione.py',
+        'scripts/firebase-config.py',
+        '.github/workflows/sincronizzazione.yml',
+      ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sincronizzazione
+  cancel-in-progress: false
+
+jobs:
+  installa:
+    # tocca il server vero (regole, postino) e usa la chiave di Firebase: solo da main e con l'approvazione di Vale
+    if: ${{ github.repository == 'illvaleee/eurodex' && github.ref == 'refs/heads/main' }}
+    environment: pubblicazione
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Chiave di Firebase (fuori dal progetto)
+        env:
+          FIREBASE_INVIO_JSON: ${{ secrets.FIREBASE_INVIO_JSON }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/segreti"
+          printf '%s' "$FIREBASE_INVIO_JSON" > "$RUNNER_TEMP/segreti/firebase.json"
+
+      - name: Prepara Firebase (servizi, piano, database)
+        run: |
+          pip install --quiet google-auth requests
+          FIREBASE_SA_FILE="$RUNNER_TEMP/segreti/firebase.json" python3 scripts/firebase-prepara.py
+
+      - name: Accesso con Google (impronta dell'app e configurazione)
+        env:
+          KEYSTORE_JKS_B64: ${{ secrets.KEYSTORE_JKS_B64 }}
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          umask 077
+          printf '%s' "$KEYSTORE_JKS_B64" | base64 -d > "$RUNNER_TEMP/segreti/firma.jks"
+          KEYSTORE_FILE="$RUNNER_TEMP/segreti/firma.jks" FIREBASE_SA_FILE="$RUNNER_TEMP/segreti/firebase.json" python3 scripts/firebase-config.py
+          # la chiave di firma serve solo qui (impronte per "Accedi con Google"): via subito, prima dei passaggi dopo
+          rm -f "$RUNNER_TEMP/segreti/firma.jks"
+
+      - name: Regole del database e postino
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/segreti/firebase.json
+        run: |
+          (cd firebase/functions && npm install --no-audit --no-fund --silent)
+          # la prima volta Google impiega qualche minuto a dare i permessi ai suoi servizi interni: si riprova
+          for i in 1 2 3 4; do
+            if npx --yes firebase-tools@latest deploy --only firestore:rules,firestore:indexes,functions --project collezione-euro-24ecd --non-interactive --force; then exit 0; fi
+            echo "Non è andata, riprovo tra 2 minuti ($i/4)"; sleep 120
+          done
+          exit 1
+
+      - name: Prova reale (come l'app)
+        run: |
+          sleep 20
+          FIREBASE_SA_FILE="$RUNNER_TEMP/segreti/firebase.json" python3 scripts/prova-sincronizzazione.py
+
+      - name: Via i file dei segreti
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/segreti"

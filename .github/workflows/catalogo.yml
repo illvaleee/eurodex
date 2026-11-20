@@ -1,0 +1,152 @@
+name: Scarica catalogo
+
+on:
+  schedule:
+    # il 1° di ogni mese: giro completo con tutte le richieste Numista del mese
+    - cron: '17 4 1 * *'
+    # ogni lunedì: monete nuove dell'anno su Numista (poche richieste tenute da parte apposta), foto e descrizioni BCE
+    - cron: '23 5 * * 1'
+  push:
+    branches: [main]
+    paths:
+      [
+        'scripts/fetch-catalog.mjs',
+        'scripts/ecb-images.mjs',
+        'scripts/ritaglio.mjs',
+        'scripts/fetch-ecb.mjs',
+        'scripts/check-catalog.mjs',
+        'scripts/foto-anni.json',
+        'scripts/foto-verificate.json',
+        'scripts/varianti-unite.json',
+        '.github/workflows/catalogo.yml',
+      ]
+  workflow_dispatch:
+    inputs:
+      prova:
+        description: 'Solo prova (poche richieste: mostra la forma delle risposte e le monete nuove trovate)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: catalogo
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    # solo nel progetto vero, e con i soli segreti del catalogo (environment "catalogo": chiavi Numista, chiave della
+    # pagina di download, invio delle notifiche); mai la chiave di firma
+    if: ${{ github.repository == 'illvaleee/eurodex' && github.ref == 'refs/heads/main' }}
+    environment: catalogo
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Dipendenze
+        run: npm install --no-audit --no-fund
+
+      - name: Copia del catalogo attuale (per il confronto)
+        run: cp www/data/catalog.json /tmp/catalogo-prima.json
+
+      - name: Scarica da Numista
+        id: numista
+        run: node scripts/fetch-catalog.mjs
+        env:
+          NUMISTA_KEYS: ${{ secrets.NUMISTA_KEYS }}
+          PROBE: ${{ inputs.prova && '1' || '0' }}
+
+      - name: Foto (BCE e Commissione europea)
+        id: foto
+        if: ${{ !inputs.prova }}
+        run: |
+          node scripts/fetch-ecb.mjs
+          node scripts/ecb-images.mjs
+
+      - name: Controllo del catalogo nuovo
+        id: controllo
+        if: ${{ !inputs.prova }}
+        run: node scripts/check-catalog.mjs /tmp/catalogo-prima.json
+
+      - name: Indice dei dati (per gli aggiornamenti senza versione nuova dell'app)
+        id: indice
+        if: ${{ !inputs.prova && steps.controllo.outcome == 'success' }}
+        run: |
+          python3 -c "import json;print(json.load(open('www/data/indice.json')).get('rev',0))" > /tmp/rev-prima.txt 2>/dev/null || echo 0 > /tmp/rev-prima.txt
+          node scripts/indice-dati.mjs /tmp/catalogo-prima.json
+          python3 -c "import json;print(json.load(open('www/data/indice.json'))['rev'])" > /tmp/rev-dopo.txt
+          if [ "$(cat /tmp/rev-prima.txt)" != "$(cat /tmp/rev-dopo.txt)" ]; then echo "nuovi=si" >> $GITHUB_OUTPUT; else echo "nuovi=no" >> $GITHUB_OUTPUT; fi
+
+      - name: Salva nel repository
+        if: always()
+        env:
+          TUTTO_OK: ${{ steps.numista.outcome == 'success' && steps.foto.outcome == 'success' && steps.controllo.outcome == 'success' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898099+github-actions[bot]@users.noreply.github.com"
+          # le risposte già scaricate si salvano sempre (così le richieste del mese non vanno perse);
+          # il catalogo dell'app solo se tutti i passaggi sono andati bene e il controllo l'ha approvato
+          git add scripts/cache scripts/ecb-cache scripts/numista-state.json || true
+          if [ "$TUTTO_OK" = "true" ]; then git add scripts/first-seen.json scripts/esclusi.txt www/data; else echo "Catalogo NON salvato: resta quello di prima"; fi
+          if git diff --cached --quiet; then echo "Niente di nuovo da salvare"; else git commit -m "Catalogo aggiornato ($(date +%F)) [skip ci]" && git checkout -q -- . && git clean -fdq && git pull --rebase -X theirs -q origin main && git push; fi
+
+      # GitHub spegne i workflow programmati di un progetto pubblico dopo 60 giorni senza attività: se l'ultimo commit ha
+      # più di 45 giorni, un commit vuoto di promemoria (senza far partire niente)
+      - name: Promemoria per GitHub (attività del progetto)
+        if: always()
+        run: |
+          git fetch -q origin main && git checkout -q -B main origin/main
+          ULTIMO=$(git log -1 --format=%ct)
+          if [ $(( $(date +%s) - ULTIMO )) -gt $(( 45 * 86400 )) ]; then
+            git commit -q --allow-empty -m "Promemoria: il catalogo si aggiorna ancora ogni settimana [skip ci]" && git push -q origin main
+          else echo "Ultimo commit recente: niente promemoria"; fi
+
+      - name: Pubblica i dati nuovi (le app li scaricano da sole, senza installare niente)
+        if: ${{ !inputs.prova && steps.numista.outcome == 'success' && steps.foto.outcome == 'success' && steps.controllo.outcome == 'success' && steps.indice.outputs.nuovi == 'si' }}
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/segreti"
+          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/segreti/deploy"
+          umask 022
+          mkdir -p ~/.ssh && ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/segreti/deploy -o IdentitiesOnly=yes"
+          for i in 1 2 3; do
+            rm -rf /tmp/dl && git clone -q --depth 1 git@github.com:illvaleee/collezione-euro-download.git /tmp/dl
+            # catalogo e schede anche con il numero dei dati nel nome (catalog-REV.json): un file nuovo non passa dalla
+            # cache di GitHub, quindi chi scarica subito dopo la notifica prende davvero quelli nuovi. Si tengono gli
+            # ultimi due numeri (per chi ha appena letto l'indice di prima) e i nomi semplici per le versioni vecchie.
+            REV=$(python3 -c "import json;print(json.load(open('www/data/indice.json'))['rev'])")
+            mkdir -p /tmp/dl/dati && find /tmp/dl/dati -mindepth 1 -maxdepth 1 ! -name 'catalog-*.json' ! -name 'details-*.json' -exec rm -rf {} +
+            cp www/data/catalog.json www/data/details.json www/data/indice.json /tmp/dl/dati/ && cp -r www/data/img /tmp/dl/dati/img
+            cp www/data/catalog.json /tmp/dl/dati/catalog-$REV.json && cp www/data/details.json /tmp/dl/dati/details-$REV.json
+            (cd /tmp/dl/dati && ls catalog-*.json | sort -V | head -n -2 | xargs -r rm -f && ls details-*.json | sort -V | head -n -2 | xargs -r rm -f)
+            python3 -c "import json;p='/tmp/dl/dati/indice.json';j=json.load(open(p));j['file']={'catalogo':'catalog-$REV.json','schede':'details-$REV.json'};json.dump(j,open(p,'w'),ensure_ascii=False,separators=(',',':'))"
+            cd /tmp/dl && git add -A dati && git -c user.name=eurodex -c user.email=eurodex@users.noreply.github.com commit -qm "Dati $(python3 -c "import json;print(json.load(open('dati/indice.json'))['rev'])")" || { cd -; break; }
+            if git push -q origin main; then cd - >/dev/null; echo "Dati pubblicati"; break; fi
+            cd - >/dev/null; sleep 20
+          done
+
+      - name: Notifica dei dati nuovi sui telefoni (Firebase)
+        if: ${{ !inputs.prova && steps.numista.outcome == 'success' && steps.foto.outcome == 'success' && steps.controllo.outcome == 'success' && steps.indice.outputs.nuovi == 'si' }}
+        env:
+          FIREBASE_INVIO_JSON: ${{ secrets.FIREBASE_INVIO_JSON }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/segreti"
+          printf '%s' "$FIREBASE_INVIO_JSON" > "$RUNNER_TEMP/segreti/firebase.json"
+          pip install --quiet google-auth requests
+          FIREBASE_SA_FILE="$RUNNER_TEMP/segreti/firebase.json" python3 scripts/invia-avviso.py www/data/indice.json --dati
+
+      - name: Via i file dei segreti
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/segreti"

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#F5F6F8" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0E1014" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Eurodex</title>
+  </head>
+  <body>
+    <!-- animazione di apertura: a ogni apertura dell'app (tornando da un'altra app non si vede, perché l'app è rimasta aperta) -->
+    <div id="intro" aria-hidden="true">
+      <video id="introv" muted playsinline preload="auto" disableremoteplayback src="intro.mp4"></video>
+    </div>
+
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <radialGradient id="g-cu" cx="35%" cy="30%" r="75%">
+          <stop offset="0" stop-color="#F6C29C" />
+          <stop offset=".55" stop-color="#C2744A" />
+          <stop offset="1" stop-color="#8E4A28" />
+        </radialGradient>
+        <radialGradient id="g-au" cx="35%" cy="30%" r="75%">
+          <stop offset="0" stop-color="#FBEAAE" />
+          <stop offset=".55" stop-color="#D4B055" />
+          <stop offset="1" stop-color="#A5822D" />
+        </radialGradient>
+        <radialGradient id="g-ag" cx="35%" cy="30%" r="75%">
+          <stop offset="0" stop-color="#FFFFFF" />
+          <stop offset=".55" stop-color="#C9CED5" />
+          <stop offset="1" stop-color="#959CA6" />
+        </radialGradient>
+      </defs>
+    </svg>
+    <div id="sfondo" aria-hidden="true"></div>
+    <div class="app">
+      <header class="top">
+        <div id="hleft"></div>
+        <div id="htitle" role="heading" aria-level="1">Eurodex</div>
+        <div id="hright"></div>
+      </header>
+      <main id="main"></main>
+    </div>
+    <nav class="tabs" aria-label="Sezioni"><div class="in" id="nav"></div></nav>
+    <div id="sheetwrap">
+      <div class="backdrop" data-act="close" aria-hidden="true"></div>
+      <div class="sheet" role="dialog" aria-hidden="true" aria-label="Scheda">
+        <div class="in">
+          <div class="grab" aria-hidden="true"></div>
+          <div id="sheetbody"></div>
+        </div>
+      </div>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite">
+      <span id="tmsg"></span><button id="tundo">Annulla</button>
+    </div>
+    <div class="zoom" id="zoom" role="dialog" aria-hidden="true" aria-label="Foto ingrandita">
+      <div class="zstage"><div id="zoomin"></div></div>
+      <div class="zbar">
+        <span id="zcap"></span><button class="zb" data-act="zflip">Gira</button
+        ><button class="zb" data-act="zclose">Chiudi</button>
+      </div>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

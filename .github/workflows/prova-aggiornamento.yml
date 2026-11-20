@@ -1,0 +1,56 @@
+name: Prova aggiornamento
+
+# Rifà solo la prova "una persona con la versione vecchia riceve e installa quella nuova",
+# contro la versione già pubblicata sulla pagina di download, senza compilare né pubblicare niente.
+on:
+  workflow_dispatch:
+    inputs:
+      vecchia:
+        description: 'Versione vecchia da cui partire (es. v1.0.75)'
+        required: true
+      nuova:
+        description: 'Numero della versione pubblicata attesa (es. 78)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  aggiornamento:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Versione vecchia
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "${{ inputs.vecchia }}" -R ${{ github.repository }} -p CollezioneEuro.apk -O vecchia.apk
+
+      - name: Accelerazione per l'emulatore
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Strumenti per inviare la notifica di prova
+        run: pip install --quiet google-auth requests pillow
+
+      - name: Prova dell'aggiornamento dall'app
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: python3 scripts/test-emulator.py vecchia.apk prove-agg aggiornamento ${{ inputs.nuova }}
+
+      - name: Salva i risultati della prova
+        if: ${{ always() }}
+        run: |
+          mkdir -p prove-agg && cd prove-agg
+          git init -q -b prove-aggiornamento && git add -A
+          git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Prova aggiornamento ${{ inputs.vecchia }} -> ${{ inputs.nuova }}" || true
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" prove-aggiornamento

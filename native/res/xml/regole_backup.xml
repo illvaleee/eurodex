@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Backup di Android (Android 12 e successivi): solo la collezione. Il resto si riscarica (catalogo, foto) oppure
+     non vale su un altro telefono (accesso, codice del dispositivo, cache): un telefono ripristinato è un dispositivo
+     nuovo, riprende la collezione dal file e si rifà l'accesso. Così si resta anche lontani dal limite di 25 MB. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="file" path="collezione.json" />
+        <include domain="file" path="copie/" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="file" path="collezione.json" />
+        <include domain="file" path="copie/" />
+    </device-transfer>
+</data-extraction-rules>

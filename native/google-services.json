@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "274166331144",
+    "project_id": "collezione-euro-24ecd",
+    "storage_bucket": "collezione-euro-24ecd.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:274166331144:android:56c535e0a3fea94cc15ebd",
+        "android_client_info": {
+          "package_name": "it.collezione.euro"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "274166331144-aa27geu0qmphj9g1ve0kiq6bovjqk0ti.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "it.collezione.euro",
+            "certificate_hash": "b5a636e7a6a5c370b3f0dd544ce877904d50b1f5"
+          }
+        },
+        {
+          "client_id": "274166331144-ghdk4pttdrue83g0kp0th9bgiasfn6r4.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDiDVmvLgHGt9vDgGlzx4C6d5Yf06xXX8o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "274166331144-ghdk4pttdrue83g0kp0th9bgiasfn6r4.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

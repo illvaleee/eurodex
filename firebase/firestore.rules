@@ -1,0 +1,32 @@
+rules_version = '2';
+// Stessa collezione su più dispositivi: ogni collezione sta in collezioni/{uid}, dove uid è l'utente di
+// Firebase legato all'account Google con cui si accede nell'app. Solo chi ha fatto l'accesso con quel
+// account può leggerla o modificarla; nessuno può elencare o cancellare le collezioni.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function mia(uid) { return request.auth != null && request.auth.uid == uid; }
+    match /collezioni/{uid} {
+      allow get, create, update: if mia(uid);
+      allow list, delete: if false;
+      // formato attuale: le voci della collezione (monete, preferite, note) con l'istante dell'ultima modifica,
+      // divise in pochi documenti (possedute in 16 parti, preferite, note in 4 parti)
+      match /voci/{doc} {
+        allow read: if mia(uid);
+        allow create, update: if mia(uid) && doc.matches('^(p[0-9a-f]|f|n[0-3])$')
+          && request.resource.data.keys().hasOnly(['e']) && request.resource.data.e is map;
+        allow delete: if false;
+      }
+      // formato delle versioni fino alla 1.0.78 (ancora letto e scritto finché tutti non aggiornano)
+      match /stato/{doc} {
+        allow read, write: if mia(uid) && doc in ['possedute', 'preferiti', 'note'];
+      }
+      match /dispositivi/{did} {
+        allow read, write: if mia(uid);
+      }
+      match /eventi/{eid} {
+        allow create: if mia(uid) && request.resource.data.testo is string && request.resource.data.testo.size() < 600;
+        allow read, update, delete: if false;
+      }
+    }
+  }
+}

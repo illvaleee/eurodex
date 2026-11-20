@@ -1,0 +1,15 @@
+node_modules/
+android/
+*.apk
+.DS_Store
+__pycache__/
+*.pyc
+www/index.html
+www/build/
+# segreti: non stanno mai nel progetto (pubblico); in GitHub Actions arrivano dai Secret degli environment
+keystore/
+*.jks
+*.keystore
+scripts/numista-keys.txt
+deploy_key*
+firebase-invio.json

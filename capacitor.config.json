@@ -1,0 +1,8 @@
+{
+  "appId": "it.collezione.euro",
+  "appName": "Eurodex",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#081627"
+  }
+}

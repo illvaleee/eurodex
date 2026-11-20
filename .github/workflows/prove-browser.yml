@@ -1,0 +1,36 @@
+name: Prove nel browser
+
+# Solo le prove nel browser (come una persona, sincronizzazione con gli emulatori di Firebase, backup, uso completo)
+# sulla versione del codice scelta, senza compilare l'APK: serve per controllare in fretta un cambiamento.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Controlli del codice, test e compilazione
+        run: npm ci --no-audit --no-fund && npm run verifica && npm run build
+      - name: Browser ed emulatori di Firebase
+        run: |
+          pip install --quiet playwright
+          python3 -m playwright install --with-deps chromium >/dev/null
+          npm install --no-save --no-audit --no-fund firebase-tools
+      - name: Prove
+        run: PROVE_FOTO=$PWD/prove-foto bash prove/esegui.sh
+      - name: Diario delle prove
+        if: always()
+        run: for f in /tmp/prova-*.log; do echo "===== $f"; tail -80 "$f"; done

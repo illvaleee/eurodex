@@ -1,0 +1,277 @@
+[
+ {
+  "id": 19,
+  "titolo": "Catalogo in PDF, app rifatta da capo, sincronizzazione più solida",
+  "data": "2026-11-20",
+  "avviso": "Nuovo: il catalogo in PDF con le tabelle per paese. Sincronizzazione più affidabile e app più accessibile",
+  "nuovo": [
+   "Catalogo in PDF (Impostazioni → Importa ed esporta): una tabella per paese, la Germania una per zecca (A, D, F, G, J), con le monete che hai, quelle che mancano e quelle mai coniate, da salvare, stampare o mandare"
+  ],
+  "migliorato": [
+   "Sincronizzazione tra dispositivi più affidabile: funziona anche senza rete (le modifiche partono appena torna) e le modifiche degli altri dispositivi arrivano da sole mentre l'app è aperta",
+   "Se due dispositivi cambiano la stessa moneta, vince sempre la modifica fatta davvero per ultima, anche se un telefono ha l'ora sbagliata",
+   "Più accessibile con TalkBack: ogni pulsante ha il suo nome, le finestre aperte isolano la pagina sotto, le barre dicono quanto sono piene",
+   "Tutta l'app è stata riscritta e controllata in modo automatico a ogni versione: più stabile e più veloce da aggiornare",
+   "Pulsanti, anni e filtri più facili da toccare (area di tocco di 48 dp, il disegno resta uguale) e scritte grigie più leggibili",
+   "\"Controlla aggiornamenti\" e \"Accedi con Google\" mostrano subito che stanno lavorando",
+   "Nelle impostazioni l'elenco dei dispositivi collegati si aggiorna da solo"
+  ]
+ },
+ {
+  "id": 18,
+  "titolo": "Scheda Extra e commemorativi per anno",
+  "data": "2026-11-20",
+  "avviso": "Nuova scheda Extra per le varianti e commemorativi divisi per anno",
+  "nuovo": [
+   "Scheda «Extra» in basso: solo le varianti (errori di conio, lettera nella stella della Grecia, stelle grandi e piccole, foglia piccola, nuovo lato comune, firme e segni diversi…), divise per paese, con quante ne hai e i filtri «Tutte · Ce l'ho · Mi mancano»",
+   "Nuova impostazione «Varianti solo nella scheda Extra» (accesa): in collezione, catalogo e mancanti resta la serie base. Quelle già segnate restano salvate",
+   "Catalogo → Comm.: prima scegli l'anno da una griglia con quante commemorative ci sono e quante ne hai, poi vedi le monete di quell'anno"
+  ],
+  "migliorato": [
+   "In Collezione e in Catalogo → Tagli le monete hanno la foto vera del lato comune al posto del disegno",
+   "Nella scheda di una moneta con varianti, in fondo ci sono anche le sue varianti, segnabili da lì",
+   "L'importazione dal file CSV riconosce anche le varianti e le proof, pure quando sono nascoste"
+  ],
+  "v": 78
+ },
+ {
+  "id": 17,
+  "titolo": "Backup completo e pagine sempre aggiornate",
+  "data": "2026-11-19",
+  "avviso": "Backup completo (anche impostazioni e sfondo) e pagine sempre aggiornate",
+  "corretto": [
+   "Togliendo la stella a una moneta dalla Collezione, chiusa la scheda la moneta restava tra le preferite finché non si cambiava scheda: ora sparisce subito. In generale, tutto quello che cambi in una scheda (stella, monete segnate, note) si vede subito nella pagina sotto appena la chiudi",
+   "In «Le mie» e in «Mancanti» i numeri in alto e dei gruppi si aggiornano subito quando segni o togli una moneta",
+   "«Annulla» dopo un ripristino ora torna davvero a com'era prima (preferite, note e impostazioni comprese, non solo le monete)"
+  ],
+  "migliorato": [
+   "I backup (file da salvare, Google Drive, copie automatiche, backup di Android) contengono tutto: monete, preferite, note, storico, impostazioni e anche la foto di sfondo",
+   "Nel ripristino puoi scegliere se riprendere anche aspetto e impostazioni (sfondo, colori, vista album, proof) o tenere quelli del dispositivo che stai usando",
+   "La sincronizzazione con l'account Google tiene uguali su tutti i dispositivi monete, preferite e note; l'aspetto (sfondo, colori, vista) resta di ciascun dispositivo"
+  ],
+  "v": 75
+ },
+ {
+  "id": 16,
+  "titolo": "Barra in basso sempre ferma",
+  "data": "2026-11-19",
+  "avviso": "La barra delle schede in basso resta ferma anche tirando la pagina",
+  "corretto": [
+   "Tirando la pagina oltre l'inizio o la fine, Android «stirava» tutto lo schermo e la barra delle schede in basso finiva mezza fuori: ora resta sempre ferma al suo posto, come l'intestazione"
+  ],
+  "migliorato": [
+   "Nelle finestre lunghe, come le novità di più versioni insieme, il pulsante «Ok» resta sempre in vista in fondo"
+  ],
+  "v": 73
+ },
+ {
+  "id": 15,
+  "titolo": "Nuova scheda «Le mie»",
+  "data": "2026-11-19",
+  "avviso": "Nuova scheda «Le mie»: solo le monete che hai, per taglio, paese o anno",
+  "nuovo": [
+   "In basso c'è la scheda «Le mie»: mostra solo ed esclusivamente le monete che hai, divise per taglio, per paese o per anno (tre pulsanti in alto), con quante sono in ogni gruppo"
+  ],
+  "migliorato": [
+   "Nella scheda «Le mie» e in «Mancanti» non compare più l'occhio «solo mancanti», che lì non serviva",
+   "Statistiche più snelle: gli elenchi per paese e per anno, uguali a quelli del Catalogo, sono stati tolti"
+  ],
+  "v": 71
+ },
+ {
+  "id": 14,
+  "titolo": "Stile uguale ovunque e aggiornamenti subito",
+  "data": "2026-11-19",
+  "avviso": "Finestre nello stile dell'app e aggiornamenti trovati subito",
+  "corretto": [
+   "«Rinomina questo» ed «Esci dall'account» aprivano le finestre di sistema di Android (con CANCEL/OK in inglese): ora si aprono nello stile dell'app, con il nome attuale già scritto",
+   "«Controlla aggiornamenti» subito dopo l'uscita di una versione poteva dire che non c'era niente di nuovo: ora la trova sempre",
+   "Toccando la notifica di un aggiornamento con l'app aperta non succedeva niente: ora si apre la finestra per installarlo; la notifica di una modifica da un altro dispositivo apre lo storico"
+  ],
+  "migliorato": [
+   "Il campo di ricerca e la «x» per cancellare hanno i colori dell'app",
+   "I dati nuovi scaricati da soli dopo la notifica sono sempre quelli appena pubblicati"
+  ],
+  "v": 71
+ },
+ {
+  "id": 13,
+  "titolo": "Salvataggio e sincronizzazione insieme",
+  "data": "2026-11-19",
+  "avviso": "Account Google, Drive e copie in un'unica sezione, con la frequenza del file su Drive",
+  "migliorato": [
+   "Nelle impostazioni c'è un'unica sezione «Salvataggio e sincronizzazione»: account Google, file su Google Drive, copie automatiche e file da tenere dove vuoi, spiegati come modi diversi per non perdere mai la collezione",
+   "Per il file su Google Drive scegli ogni quanto aggiornarlo: a ogni modifica, ogni giorno, ogni settimana o ogni mese",
+   "I dispositivi collegati si vedono con il nome delle impostazioni di Android (per esempio «OPPO Reno11 F 5G») e sotto il modello preciso, con l'icona di telefono o tablet"
+  ],
+  "v": 68
+ },
+ {
+  "id": 12,
+  "titolo": "Sincronizzazione con l'account Google",
+  "data": "2026-11-19",
+  "avviso": "Stessa collezione su tutti i dispositivi: basta accedere con lo stesso account Google",
+  "nuovo": [
+   "Impostazioni → Stessa collezione su più dispositivi → Accedi con Google: su telefono, tablet o altri telefoni dove accedi con lo stesso account la collezione è la stessa (al primo accesso le monete di ognuno si uniscono, non si perde niente)",
+   "Ogni modifica fatta su un dispositivo arriva subito sugli altri, anche con l'app chiusa, con una notifica che dice cosa è cambiato, da quale dispositivo e quando",
+   "Sul tablet appena installato puoi accedere con Google già dalla schermata di benvenuto e ritrovi subito la tua collezione"
+  ],
+  "tolto": [
+   "Il collegamento con il codice della versione precedente: ora basta l'account Google"
+  ],
+  "v": 65
+ },
+ {
+  "id": 11,
+  "titolo": "Stessa collezione su più dispositivi",
+  "data": "2026-11-19",
+  "avviso": "Telefono e tablet con la stessa collezione, e una notifica a ogni modifica",
+  "nuovo": [
+   "Impostazioni → Stessa collezione su più dispositivi: colleghi telefono, tablet o altri telefoni con un codice e la collezione diventa la stessa su tutti (le monete di ognuno si uniscono, non si perde niente)",
+   "Ogni modifica fatta su un dispositivo (monete segnate o tolte, preferite, note, importazioni, azzeramento) arriva subito sugli altri, anche con l'app chiusa, con una notifica che dice cosa è cambiato, da quale dispositivo e quando",
+   "Nella stessa sezione vedi quali dispositivi sono collegati e quando sono stati usati l'ultima volta; puoi rinominarli o scollegarli",
+   "Nello storico le modifiche arrivate dagli altri dispositivi hanno accanto il nome del dispositivo"
+  ],
+  "v": 63
+ },
+ {
+  "id": 10,
+  "titolo": "Schermo orizzontale e tablet",
+  "data": "2026-11-19",
+  "avviso": "Ottimizzata per schermo orizzontale, tablet e pieghevoli",
+  "migliorato": [
+   "Con il telefono in orizzontale, su tablet e pieghevoli lo spazio si usa tutto: più colonne di monete e schede affiancate",
+   "Sugli schermi bassi (telefono girato) la barra delle sezioni passa a sinistra, così resta più spazio in altezza",
+   "L'animazione di apertura in orizzontale si vede intera"
+  ],
+  "v": 62
+ },
+ {
+  "id": 9,
+  "titolo": "Dati scaricati subito",
+  "data": "2026-11-19",
+  "avviso": "I dati nuovi si scaricano da soli appena pubblicati, anche con l'app chiusa",
+  "migliorato": [
+   "Appena vengono pubblicati dati nuovi arriva subito la notifica e il telefono li scarica da solo in secondo piano, anche con l'app chiusa (se manca la rete, appena torna). Aprendo l'app sono già lì"
+  ],
+  "v": 61
+ },
+ {
+  "id": 8,
+  "titolo": "Dati che si aggiornano da soli",
+  "data": "2026-11-19",
+  "avviso": "Da ora catalogo, schede e foto si aggiornano da soli, senza installare una versione nuova",
+  "nuovo": [
+   "Catalogo, schede e foto arrivano da soli: quando ci sono dati nuovi ricevi la notifica «Catalogo aggiornato» e aprendo l'app li trovi già, senza installare niente",
+   "Una versione nuova dell'app arriverà solo quando ci sono funzioni nuove"
+  ],
+  "v": 60
+ },
+ {
+  "id": 7,
+  "titolo": "Sfondo con qualsiasi colore",
+  "data": "2026-11-19",
+  "avviso": "Sfondo: scegli qualsiasi colore dalla ruota dei colori · intensità dall'1% al 100%",
+  "nuovo": [
+   "Sfondo → Colore: una ruota con tutti i colori, sposti il cursore sul colore preciso che vuoi; sotto regoli la luminosità"
+  ],
+  "migliorato": [
+   "L'intensità dello sfondo (colore o foto) va dall'1% al 100%",
+   "Con sfondi scuri le scritte in alto e i titoli delle sezioni diventano chiare, così si leggono sempre"
+  ],
+  "v": 59
+ },
+ {
+  "id": 6,
+  "titolo": "Sfondi e monete proof",
+  "data": "2026-11-19",
+  "avviso": "Sfondi colorati o una tua foto · si possono nascondere le monete proof",
+  "nuovo": [
+   "Sfondo personalizzato: in Impostazioni → Sfondo scegli un colore (Cielo, Oro, Salvia, Cipria, Lavanda, Notte) o una tua foto, e regoli quanto si vede",
+   "Impostazioni → «Nascondi le monete proof»: spariscono da catalogo, mancanti e percentuali. Quelle che hai segnato restano salvate e tornano se lo spegni"
+  ],
+  "migliorato": [
+   "Bulgaria (tratto sottile/spesso), Belgio 1 cent (stelle grandi/piccole), Belgio 5 cent 2022 (due maestri di zecca), Austria 5 cent 2017 («DIE change») e Austria 2 euro 2023 («extra alloy»): ora ognuna è una moneta sola, senza varianti. Se ne avevi segnata una, la ritrovi"
+  ],
+  "v": 58
+ },
+ {
+  "id": 5,
+  "titolo": "Storico completo",
+  "data": "2026-11-19",
+  "avviso": "Storico completo, 100 modifiche alla volta · tocca una moneta dello storico per aprire la sua scheda",
+  "migliorato": [
+   "Lo storico mostra tutte le modifiche, 100 alla volta: in fondo c'è il pulsante per vedere le successive",
+   "Toccando una moneta nello storico si apre la sua scheda"
+  ],
+  "corretto": [
+   "Le monete importate dal file CSV non mostrano più l'ora 12:00, che non era vera (il file ha solo il giorno): ora c'è scritto «importata»",
+   "Impostazioni: i pulsanti non si spostano più un attimo dopo l'apertura (prima si rischiava di toccare quello sbagliato)"
+  ],
+  "v": 52
+ },
+ {
+  "id": 4,
+  "titolo": "Cosa c'è di nuovo",
+  "data": "2026-11-19",
+  "avviso": "Dopo ogni aggiornamento l'app ti dice cosa è cambiato · avviso all'apertura se c'è una versione più nuova",
+  "nuovo": [
+   "Questa finestra: dopo ogni aggiornamento ti dice cosa è cambiato. La ritrovi quando vuoi in Impostazioni → Novità delle versioni",
+   "Se esce una versione più nuova, all'apertura l'app te lo dice subito: aggiorni con un tocco o vai avanti e lo fai dopo"
+  ],
+  "v": 52
+ },
+ {
+  "id": 3,
+  "v": 47,
+  "titolo": "Eurodex",
+  "data": "2026-11-19",
+  "avviso": "L'app ora si chiama Eurodex · schede da chiudere tirandole giù",
+  "nuovo": [
+   "L'app ha un nome nuovo: Eurodex"
+  ],
+  "migliorato": [
+   "Le schede delle monete si chiudono tirandole giù con il dito: seguono il movimento e basta anche un colpo veloce verso il basso",
+   "La maniglia in cima alle schede si prende più facilmente"
+  ],
+  "corretto": [
+   "«In arrivo» mostra di nuovo tutte le monete annunciate: quelle che per ora hanno la foto presa da Numista sono segnate come «foto provvisoria»"
+  ]
+ },
+ {
+  "id": 2,
+  "v": 44,
+  "titolo": "Notifiche immediate",
+  "data": "2026-11-19",
+  "nuovo": [
+   "Notifica immediata quando esce una versione nuova, anche con l'app chiusa",
+   "L'app ti chiede una volta sola se vuoi ricevere gli avvisi; puoi cambiare idea in Impostazioni"
+  ],
+  "migliorato": [
+   "L'animazione di apertura riempie tutto lo schermo su ogni telefono e si vede a ogni apertura"
+  ],
+  "tolto": [
+   "La scritta «Caricamento…» all'apertura"
+  ]
+ },
+ {
+  "id": 1,
+  "v": 35,
+  "titolo": "Versione premium",
+  "data": "2026-11-19",
+  "nuovo": [
+   "Animazione di apertura e icona nuova",
+   "Sezione «Valore della collezione» con le stime di Numista",
+   "Benvenuto al primo avvio con i consigli per iniziare",
+   "Foto prese da Numista per le monete di cui la BCE non ha pubblicato la foto"
+  ],
+  "migliorato": [
+   "Monete ritagliate, senza bordo, con un'ombra che le stacca dallo sfondo",
+   "Menu «Ordina» e gli altri elenchi da scegliere nello stile dell'app",
+   "Elenchi lunghi più veloci; l'app ricorda dove eri arrivato quando torni indietro"
+  ],
+  "corretto": [
+   "I collegamenti alle pagine della BCE che davano «pagina non trovata»"
+  ]
+ }
+]

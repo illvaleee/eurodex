@@ -1,0 +1,31 @@
+{
+  "spiegazione": "Varianti che l'app NON distingue: le emissioni diventano un pezzo solo, senza etichetta. Chi aveva segnato una delle due la ritrova (il codice vecchio porta al pezzo unito). 'cerca' si confronta con la variante scritta da Numista (in inglese). Con 'segni': 'unisci' si uniscono anche i pezzi che differiscono solo per il segno (es. due maestri di zecca nello stesso anno).",
+  "regole": [
+    {
+      "paese": "BG",
+      "cerca": "thick|thin|blurry|sharp",
+      "nota": "Bulgaria: tratto sottile / tratto spesso"
+    },
+    {
+      "tipo": 73,
+      "cerca": "stars?",
+      "nota": "Belgio 1 cent 1999-2007: stelle grandi / stelle piccole"
+    },
+    {
+      "tipo": 59,
+      "cerca": "die ?change",
+      "nota": "Austria 5 cent: «DIE change 2017 to now»"
+    },
+    {
+      "tipo": 9761,
+      "cerca": "alloy|variety",
+      "nota": "Austria 2 euro 2023: «variety; extra alloy»"
+    },
+    {
+      "tipo": 56032,
+      "anno": 2022,
+      "segni": "unisci",
+      "nota": "Belgio 5 cent 2022: G. Van de Velde / I. Van Herzele"
+    }
+  ]
+}

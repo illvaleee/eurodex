@@ -1,0 +1,46 @@
+{
+  "name": "collezione-euro",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Eurodex – catalogo delle monete euro da circolazione",
+  "type": "module",
+  "scripts": {
+    "catalogo": "node scripts/fetch-catalog.mjs",
+    "prova": "PROBE=1 node scripts/fetch-catalog.mjs",
+    "build": "rm -rf www/build && vite build",
+    "dev": "vite",
+    "tipi": "tsc",
+    "lint": "eslint .",
+    "formato": "prettier --check .",
+    "formatta": "prettier --write .",
+    "test": "vitest run",
+    "verifica": "npm run tipi && npm run lint && npm run formato && npm run test"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3",
+    "firebase": "^13.4.0",
+    "jspdf": "4.2.1",
+    "lit-html": "^3.3.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.2",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.15.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.14.0",
+    "jsdom": "^31.0.1",
+    "prettier": "^3.10.1",
+    "sharp": "^0.35.5",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.73.0",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

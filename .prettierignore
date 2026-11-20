@@ -1,0 +1,13 @@
+www/**
+android/**
+node_modules/**
+scripts/cache/**
+scripts/ecb-cache/**
+*.md
+scripts/first-seen.json
+scripts/numista-state.json
+scripts/foto-*.json
+scripts/varianti-unite.json
+native/google-services.json
+package-lock.json
+firebase/functions/package-lock.json

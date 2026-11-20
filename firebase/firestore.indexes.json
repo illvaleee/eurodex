@@ -1,0 +1,25 @@
+{
+  "indexes": [],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "stato",
+      "fieldPath": "p",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "stato",
+      "fieldPath": "f",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "stato",
+      "fieldPath": "n",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "voci",
+      "fieldPath": "e",
+      "indexes": []
+    }
+  ]
+}

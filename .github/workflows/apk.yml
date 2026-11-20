@@ -1,0 +1,549 @@
+name: Compila APK
+
+on:
+  # L'APK si ricrea quando cambia l'app (codice, grafica, parte Android). I dati (catalogo, schede, foto)
+  # invece NON richiedono più una versione nuova: li pubblica da solo "Scarica catalogo" nella cartella dati/
+  # della pagina di download, e le app installate li scaricano senza installare niente.
+  # (I salvataggi del catalogo fatti dal robot di GitHub non avviano questo workflow.)
+  workflow_dispatch:
+    inputs:
+      senza_prove:
+        description: 'Solo compilazione e pubblicazione, senza le prove automatiche (le prove le fanno a mano)'
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      [
+        'src/**',
+        'tests/**',
+        'www/**',
+        'native/**',
+        'assets/**',
+        'package.json',
+        'package-lock.json',
+        'tsconfig.json',
+        'vite.config.ts',
+        'eslint.config.js',
+        'capacitor.config.json',
+        'scripts/make-icons.mjs',
+      ]
+
+# ogni job dichiara i permessi che gli servono (di base solo lettura)
+permissions:
+  contents: read
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  controllo:
+    runs-on: ubuntu-latest
+    outputs:
+      serve: ${{ steps.c.outputs.serve }}
+      impronta: ${{ steps.c.outputs.impronta }}
+      sha: ${{ steps.c.outputs.sha }}
+      n: ${{ steps.c.outputs.n }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - id: c
+        name: C'è qualcosa di nuovo? E che numero di versione avrà
+        run: |
+          H=$(find src www native assets package.json package-lock.json tsconfig.json vite.config.ts capacitor.config.json scripts/make-icons.mjs -type f ! -name version.json -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16)
+          curl -fsS https://raw.githubusercontent.com/illvaleee/collezione-euro-download/main/version.json -o pubblicata.json || echo '{}' > pubblicata.json
+          OLD=$(python3 -c "import json; print(json.load(open('pubblicata.json')).get('hash',''))")
+          # numero della versione nuova: quello pubblicato + 1 (se nel frattempo si pubblica altro, il controllo del
+          # versionCode in "firma-e-pubblica" ferma tutto)
+          PUB=$(python3 -c "import json; print(json.load(open('pubblicata.json')).get('code',0))")
+          N=$(( PUB > 0 ? PUB + 1 : ${{ github.run_number }} ))
+          { echo "impronta=$H"; echo "sha=$(git rev-parse HEAD)"; echo "n=$N"; } >> "$GITHUB_OUTPUT"
+          # avviato a mano si compila sempre; in automatico solo se app o catalogo sono cambiati
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$H" != "$OLD" ]; then echo "serve=true" >> "$GITHUB_OUTPUT"; else echo "serve=false" >> "$GITHUB_OUTPUT"; echo "Niente di nuovo: l'APK pubblicato è già aggiornato"; fi
+
+  # prove dell'app nel browser, come le farebbe una persona: preferite, monete segnate da ogni pagina, numeri che si
+  # aggiornano subito, note, Le mie, backup e ripristino completi, sincronizzazione tra due dispositivi (emulatori di
+  # Firebase), impaginazione su più schermi in chiaro e in scuro. Se anche una sola fallisce, non si pubblica.
+  prove:
+    needs: controllo
+    if: ${{ needs.controllo.outputs.serve == 'true' && !inputs.senza_prove }}
+    permissions:
+      contents: read
+      actions: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.controllo.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Compila l'app per il browser
+        run: npm ci --no-audit --no-fund && npm run build
+      - name: Browser ed emulatori di Firebase per le prove
+        run: |
+          pip install --quiet playwright
+          python3 -m playwright install --with-deps chromium >/dev/null
+          npm install --no-save --no-audit --no-fund firebase-tools
+      - name: Prove come una persona
+        run: PROVE_FOTO=$PWD/prove-foto bash prove/esegui.sh
+      - name: Foto delle prove
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prove-browser
+          path: prove-foto
+          retention-days: 7
+      - name: Al primo errore si fermano anche le altre prove (si risparmiano minuti)
+        if: ${{ failure() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
+
+  # controlli del codice, test e compilazione dell'APK (uguale su tutti i rami, senza nessun segreto)
+  build:
+    needs: controllo
+    if: ${{ needs.controllo.outputs.serve == 'true' }}
+    permissions:
+      contents: read
+      actions: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.controllo.outputs.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Dipendenze
+        run: npm ci --no-audit --no-fund
+
+      # tipi, regole del codice, formattazione e test delle singole funzioni: se uno solo fallisce non si compila
+      - name: Controlli del codice e test
+        run: npm run verifica
+
+      - name: Compila l'app (TypeScript → www)
+        run: npm run build
+
+      - name: Progetto Android
+        run: |
+          printf '{"code":%s,"version":"1.0.%s"}\n' ${{ needs.controllo.outputs.n }} ${{ needs.controllo.outputs.n }} > www/version.json
+          # le novità scritte per questa versione (senza numero) prendono il numero di questa versione
+          python3 scripts/numera-novita.py ${{ needs.controllo.outputs.n }}
+          # indice dei dati dentro l'APK (di solito c'è già, lo scrive "Scarica catalogo")
+          [ -f www/data/indice.json ] || node scripts/indice-dati.mjs
+          npx cap add android
+          npx cap sync android
+          node scripts/make-icons.mjs
+          cp native/*.java android/app/src/main/java/it/collezione/euro/
+          # backup di Android: solo la collezione (vedi native/res/xml/regole_backup.xml)
+          mkdir -p android/app/src/main/res/xml && cp native/res/xml/*.xml android/app/src/main/res/xml/
+          if grep -q 'android:fullBackupContent\|android:dataExtractionRules' android/app/src/main/AndroidManifest.xml; then echo "Regole di backup già nel manifest: da controllare"; exit 1; fi
+          sed -i '0,/<application/s##<application android:dataExtractionRules="@xml/regole_backup" android:fullBackupContent="@xml/backup_vecchio"#' android/app/src/main/AndroidManifest.xml
+          grep -c 'android:dataExtractionRules="@xml/regole_backup"' android/app/src/main/AndroidManifest.xml
+          sed -i 's#<uses-permission android:name="android.permission.INTERNET" />#<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />#' android/app/src/main/AndroidManifest.xml
+          grep -c REQUEST_INSTALL_PACKAGES android/app/src/main/AndroidManifest.xml
+          # avvisi degli aggiornamenti: permesso notifiche e WorkManager (controllo in secondo piano)
+          sed -i 's#<uses-permission android:name="android.permission.INTERNET" />#<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />#' android/app/src/main/AndroidManifest.xml
+          grep -c POST_NOTIFICATIONS android/app/src/main/AndroidManifest.xml
+          sed -i '0,/^dependencies {/s//dependencies {\n    implementation "androidx.work:work-runtime:2.9.1"\n    implementation "com.google.firebase:firebase-messaging:24.1.0"\n    implementation "androidx.credentials:credentials:1.3.0"\n    implementation "androidx.credentials:credentials-play-services-auth:1.3.0"\n    implementation "com.google.android.libraries.identity.googleid:googleid:1.1.1"/' android/app/build.gradle
+          grep -c "androidx.work:work-runtime" android/app/build.gradle
+          grep -c "firebase-messaging" android/app/build.gradle
+          # notifiche immediate (push, Firebase) e "Accedi con Google": configurazione del progetto Firebase. È nel
+          # progetto (sta comunque dentro ogni APK); le impronte della firma le registra "Server della sincronizzazione"
+          cp native/google-services.json android/app/google-services.json
+          sed -i 's#</application>#    <service android:name=".AvvisiPush" android:exported="false">\n            <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>\n        </service>\n    </application>#' android/app/src/main/AndroidManifest.xml
+          grep -c "AvvisiPush" android/app/src/main/AndroidManifest.xml
+          sed -i "s/versionCode [0-9]*/versionCode ${{ needs.controllo.outputs.n }}/; s/versionName \"[^\"]*\"/versionName \"1.0.${{ needs.controllo.outputs.n }}\"/" android/app/build.gradle
+
+      - name: Compila
+        run: cd android && ./gradlew assembleRelease --no-daemon
+
+      # la compilazione è uguale su tutti i rami e NON usa la chiave vera: l'APK non firmato va a "firma-e-pubblica"
+      # (solo main, con l'approvazione di Vale), quello firmato con una chiave di prova serve per le prove
+      - name: APK non firmato (per la pubblicazione) e firmato con una chiave di prova (per le prove)
+        run: |
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          "$BT/zipalign" -p -f 4 android/app/build/outputs/apk/release/app-release-unsigned.apk non-firmato.apk
+          keytool -genkeypair -keystore "$RUNNER_TEMP/prova.jks" -alias prova -keyalg RSA -keysize 2048 -validity 30 \
+            -storepass provaprova -keypass provaprova -dname "CN=Eurodex prova" >/dev/null 2>&1
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/prova.jks" --ks-key-alias prova --ks-pass pass:provaprova --out CollezioneEuro.apk non-firmato.apk
+          "$BT/apksigner" verify CollezioneEuro.apk
+          ls -lh non-firmato.apk CollezioneEuro.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk-non-firmato
+          path: non-firmato.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk-prova
+          path: CollezioneEuro.apk
+      - name: Al primo errore si fermano anche le altre prove (si risparmiano minuti)
+        if: ${{ failure() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
+
+  test:
+    needs: [controllo, build]
+    if: ${{ !inputs.senza_prove }}
+    permissions:
+      contents: write
+      actions: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.controllo.outputs.sha }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk-prova
+
+      - name: Accelerazione per l'emulatore
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Prova su un telefono Android simulato
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: default
+          arch: x86_64
+          profile: pixel_6
+          cores: 4
+          ram-size: 4096M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: pip install -q pillow >/dev/null 2>&1; python3 scripts/test-emulator.py CollezioneEuro.apk prove-emu
+
+      - name: Salva i risultati della prova
+        if: always()
+        run: |
+          mkdir -p prove-emu && cd prove-emu
+          git init -q -b prove && git add -A
+          git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Prova APK ${{ github.run_number }}" || true
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" prove
+      - name: Al primo errore si fermano anche le altre prove (si risparmiano minuti)
+        if: ${{ failure() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
+
+  # l'esploratore prova l'APK nuovo come una persona che lo vede per la prima volta: scopre da solo schermate ed
+  # elementi, tocca, scorre e scrive tutto, e controlla crash, blocchi, grafica, accessibilità e dati
+  esplorazione:
+    needs: [controllo, build]
+    if: ${{ !inputs.senza_prove }}
+    permissions:
+      contents: write
+      actions: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.controllo.outputs.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk-prova
+      - name: Accelerazione per l'emulatore
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - run: pip install --quiet pillow
+      - name: Esplorazione
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 4
+          ram-size: 4096M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: adb install -r CollezioneEuro.apk && python3 prove/esploratore.py it.collezione.euro esplorazione 30
+      - name: 'Risultati sul ramo esplorazione'
+        if: always()
+        run: |
+          mkdir -p esplorazione && cd esplorazione
+          git init -q -b esplorazione && git add -A
+          git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Esplorazione APK ${{ github.run_number }}" || true
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" esplorazione
+      - name: Al primo errore si fermano anche le altre prove (si risparmiano minuti)
+        if: ${{ failure() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
+
+  # prima di pubblicare: la versione nuova installata sopra quella già pubblicata (come un aggiornamento), con
+  # monete segnate e una preferita: la collezione deve restare tutta
+  # la versione nuova installata SOPRA quella che hanno sul telefono (la collezione deve restare): tutte e due firmate
+  # con la stessa chiave di prova (l'aggiornamento di Android vuole la stessa firma), così si prova su ogni ramo senza
+  # la chiave vera
+  sopra:
+    needs: [controllo, build]
+    if: ${{ !inputs.senza_prove }}
+    permissions:
+      contents: write
+      actions: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.controllo.outputs.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk-non-firmato
+      - name: Versione pubblicata adesso, e tutte e due con la stessa chiave di prova
+        id: prec
+        run: |
+          if ! curl -fsSL https://raw.githubusercontent.com/illvaleee/collezione-euro-download/main/CollezioneEuro.apk -o pubblicata.apk || [ ! -s pubblicata.apk ]; then
+            echo "Nessuna versione pubblicata"; echo "c=no" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          keytool -genkeypair -keystore "$RUNNER_TEMP/prova.jks" -alias prova -keyalg RSA -keysize 2048 -validity 30 \
+            -storepass provaprova -keypass provaprova -dname "CN=Eurodex prova" >/dev/null 2>&1
+          # via la firma vera dalla versione pubblicata (file della firma v1; il blocco v2/v3 cade riscrivendo lo zip),
+          # poi la chiave di prova
+          zip -q -d pubblicata.apk 'META-INF/*.SF' 'META-INF/*.RSA' 'META-INF/*.EC' 'META-INF/*.DSA' 'META-INF/MANIFEST.MF' || true
+          "$BT/zipalign" -p -f 4 pubblicata.apk vecchia-allineata.apk
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/prova.jks" --ks-key-alias prova --ks-pass pass:provaprova --out vecchia.apk vecchia-allineata.apk
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/prova.jks" --ks-key-alias prova --ks-pass pass:provaprova --out CollezioneEuro.apk non-firmato.apk
+          "$BT/apksigner" verify vecchia.apk && "$BT/apksigner" verify CollezioneEuro.apk
+          echo "c=si" >> "$GITHUB_OUTPUT"; ls -l vecchia.apk CollezioneEuro.apk
+      - name: Accelerazione per l'emulatore
+        if: ${{ steps.prec.outputs.c == 'si' }}
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Versione nuova sopra quella pubblicata
+        if: ${{ steps.prec.outputs.c == 'si' }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: default
+          arch: x86_64
+          profile: pixel_6
+          cores: 4
+          ram-size: 4096M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: pip install -q pillow >/dev/null 2>&1; python3 scripts/test-emulator.py vecchia.apk prove-sopra sopra CollezioneEuro.apk
+      - name: Salva i risultati della prova
+        if: ${{ always() && steps.prec.outputs.c == 'si' }}
+        run: |
+          mkdir -p prove-sopra && cd prove-sopra
+          git init -q -b prove-sopra && git add -A
+          git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Prova sopra la versione pubblicata ${{ github.run_number }}" || true
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" prove-sopra
+      - name: Al primo errore si fermano anche le altre prove (si risparmiano minuti)
+        if: ${{ failure() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
+
+  # Firma con la chiave vera e pubblicazione: solo su main, solo se tutte le prove sono passate, e solo dopo che Vale
+  # tocca "Approve" (environment "pubblicazione" con Vale come revisore): i segreti arrivano a questo job solo dopo
+  # l'approvazione. Si firma lo STESSO APK non firmato che è stato provato. Niente action di terzi, niente stampa dei
+  # segreti o di loro derivati; i file dei segreti stanno fuori dal progetto, si cancellano subito dopo l'uso e alla fine.
+  firma-e-pubblica:
+    needs: [controllo, build, test, prove, esplorazione, sopra]
+    if: >-
+      ${{ !cancelled() && github.repository == 'illvaleee/eurodex' && github.ref == 'refs/heads/main' &&
+      needs.controllo.outputs.serve == 'true' && needs.build.result == 'success' &&
+      (inputs.senza_prove || (needs.test.result == 'success' && needs.prove.result == 'success' &&
+      needs.esplorazione.result == 'success' && needs.sopra.result == 'success')) }}
+    environment: pubblicazione
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.controllo.outputs.sha }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk-non-firmato
+
+      - name: Firma con la chiave vera
+        env:
+          KEYSTORE_JKS_B64: ${{ secrets.KEYSTORE_JKS_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/segreti"
+          printf '%s' "$KEYSTORE_JKS_B64" | base64 -d > "$RUNNER_TEMP/segreti/firma.jks"
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/segreti/firma.jks" --ks-key-alias collezione --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEYSTORE_PASSWORD --out CollezioneEuro.apk non-firmato.apk
+          rm -f "$RUNNER_TEMP/segreti/firma.jks"
+          "$BT/apksigner" verify CollezioneEuro.apk
+          ls -lh CollezioneEuro.apk
+
+      - name: L'APK ha il numero di versione giusto
+        run: |
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          V=$("$BT/aapt2" dump badging CollezioneEuro.apk | grep -o "versionCode='[0-9]*'" | grep -o '[0-9]*')
+          echo "versionCode $V, attesa ${{ needs.controllo.outputs.n }}"
+          [ "$V" = "${{ needs.controllo.outputs.n }}" ]
+
+      - name: La versione che hanno adesso sul telefono (per la prova dell'aggiornamento, dopo)
+        run: curl -fsSL https://raw.githubusercontent.com/illvaleee/collezione-euro-download/main/CollezioneEuro.apk -o precedente.apk || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk-precedente
+          path: precedente.apk
+          if-no-files-found: ignore
+
+      - name: Pubblica come release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          N=${{ needs.controllo.outputs.n }}
+          gh release create "v1.0.$N" CollezioneEuro.apk -R ${{ github.repository }} --target ${{ needs.controllo.outputs.sha }} \
+            --title "Eurodex 1.0.$N" --notes "APK pronto da installare. Scarica CollezioneEuro.apk qui sotto (è Eurodex, il nome del file resta quello vecchio per gli aggiornamenti)."
+
+      - name: Pubblica per l'aggiornamento dall'app
+        env:
+          NOTA_COMMIT: ${{ github.event.head_commit.message }}
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/segreti"
+          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/segreti/deploy"
+          mkdir -p ~/.ssh && ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/segreti/deploy -o IdentitiesOnly=yes"
+          N=${{ needs.controllo.outputs.n }}
+          rm -rf pub && mkdir pub && cp CollezioneEuro.apk pub/ && cp CollezioneEuro.apk pub/CollezioneEuro-1.0.$N.apk
+          git clone -q --depth 1 git@github.com:illvaleee/collezione-euro-download.git /tmp/dl0 || true
+          if [ -f /tmp/dl0/dati/indice.json ]; then cp -r /tmp/dl0/dati pub/dati; else mkdir -p pub/dati && cp www/data/catalog.json www/data/details.json www/data/indice.json pub/dati/ && cp -r www/data/img pub/dati/img; fi
+          ls pub/dati | head
+          cp CollezioneEuro.apk pub/Eurodex.apk
+          curl -fsS https://raw.githubusercontent.com/illvaleee/collezione-euro-download/main/version.json -o prima.json || echo '{}' > prima.json
+          python3 - "$N" "$(stat -c %s CollezioneEuro.apk)" "${{ needs.controllo.outputs.impronta }}" > pub/version.json <<'PY'
+          import json, sys, datetime
+          n, size, h = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+          c = json.load(open('www/data/catalog.json'))
+          st = {'monete': len(c['types']), 'pezzi': sum(len(t['p']) for t in c['types']), 'foto': sum(1 for t in c['types'] if t.get('img') and t['img'][0])}
+          try: old = json.load(open('prima.json')).get('stat') or {}
+          except Exception: old = {}
+          parti = []
+          for k, uno, tanti in (('monete', 'moneta nuova', 'monete nuove'), ('foto', 'foto nuova', 'foto nuove'), ('pezzi', 'anno o zecca in più', 'anni e zecche in più')):
+              d = st[k] - old.get(k, st[k])
+              if d > 0: parti.append(f"{d} {uno if d == 1 else tanti}")
+          note = ('Catalogo aggiornato: ' + ', '.join(parti)) if parti else 'Miglioramenti all\'app'
+          import os
+          nc = [l.split(':', 1)[1].strip() for l in os.environ.get('NOTA_COMMIT', '').splitlines() if l.lower().startswith('novità:')]
+          # se in questa versione ci sono novità scritte a mano (novita.json), la notifica usa il loro riassunto
+          try:
+              nv = [e for e in json.load(open('www/novita.json')) if e.get('v', n) == n]
+              av = [e['avviso'] for e in nv if e.get('avviso')]
+              if av: note = ' · '.join(av) + (' · ' + note if parti else '')
+          except Exception: pass
+          if nc and nc[0]: note = nc[0] + (' · ' + note if parti else '')
+          print(json.dumps({'code': n, 'version': f'1.0.{n}', 'date': datetime.date.today().isoformat(), 'apk': f'CollezioneEuro-1.0.{n}.apk', 'size': size, 'hash': h, 'stat': st, 'note': note}, ensure_ascii=False))
+          PY
+          cat pub/version.json
+          sed -e "s/{N}/$N/" -e "s#{DATA}#$(date -u +%d/%m/%Y)#" scripts/leggimi-download.md > pub/README.md
+          cd pub && git init -q -b main && git add . && git -c user.name=collezione-euro -c user.email=collezione-euro@users.noreply.github.com commit -qm "Eurodex 1.0.$N"
+          git push -f git@github.com:illvaleee/collezione-euro-download.git main
+          rm -f "$RUNNER_TEMP/segreti/deploy"
+
+      - name: Segna nel repository il numero di versione delle novità
+        run: |
+          git fetch -q origin main && git checkout -q -B main origin/main
+          python3 scripts/numera-novita.py ${{ needs.controllo.outputs.n }}
+          if ! git diff --quiet -- www/novita.json; then
+            git -c user.name=eurodex -c user.email=eurodex@users.noreply.github.com commit -qm "Novità: numero di versione 1.0.${{ needs.controllo.outputs.n }} [skip ci]" -- www/novita.json
+            for i in 1 2 3; do git push -q origin main && break; git pull -q --rebase origin main; done
+          fi
+
+      - name: Notifica immediata sui telefoni (Firebase)
+        env:
+          FIREBASE_INVIO_JSON: ${{ secrets.FIREBASE_INVIO_JSON }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/segreti"
+          printf '%s' "$FIREBASE_INVIO_JSON" > "$RUNNER_TEMP/segreti/firebase.json"
+          pip install --quiet google-auth requests
+          FIREBASE_SA_FILE="$RUNNER_TEMP/segreti/firebase.json" python3 scripts/invia-avviso.py pub/version.json
+
+      - name: Via i file dei segreti
+        if: ${{ always() }}
+        run: rm -rf "$RUNNER_TEMP/segreti"
+
+  aggiornamento:
+    needs: [controllo, firma-e-pubblica]
+    if: ${{ !inputs.senza_prove }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.controllo.outputs.sha }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk-precedente
+        continue-on-error: true
+      - name: Versione precedente (quella che avevano sul telefono prima della pubblicazione)
+        id: prec
+        run: |
+          if [ -s precedente.apk ]; then mv precedente.apk vecchia.apk; echo "c=si" >> "$GITHUB_OUTPUT"; else echo "Nessuna versione precedente"; echo "c=no" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Accelerazione per l'emulatore
+        if: ${{ steps.prec.outputs.c == 'si' }}
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # (senza i segreti: la parte della prova che rimanda la notifica push resta solo annotata; la notifica vera è già
+      # partita da "firma-e-pubblica", e "Prova notifiche push" la prova da sola)
+      - name: Prova dell'aggiornamento dall'app
+        if: ${{ steps.prec.outputs.c == 'si' }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: python3 scripts/test-emulator.py vecchia.apk prove-agg aggiornamento ${{ needs.controllo.outputs.n }}
+
+      - name: Salva i risultati della prova
+        if: ${{ always() && steps.prec.outputs.c == 'si' }}
+        run: |
+          mkdir -p prove-agg && cd prove-agg
+          git init -q -b prove-aggiornamento && git add -A
+          git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Prova aggiornamento ${{ github.run_number }}" || true
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" prove-aggiornamento
