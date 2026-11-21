@@ -484,11 +484,34 @@ def sotto_una_barra(n, nodi):
     return False
 
 
+def barre_di_pulsanti(app):
+    """Le barre di pulsanti in fondo o in cima allo schermo (come quella delle schede), riconosciute anche prima di
+    averle viste restare ferme scorrendo: almeno 3 elementi toccabili affiancati, con la stessa cima e lo stesso
+    fondo, nel 15% più basso o più alto dello schermo. Ogni barra: (cima, fondo, indici dei suoi pulsanti)."""
+    cand = sorted((n for n in app if (n.clic or n.lungo) and (n.b[1] >= H * 0.85 or n.b[3] <= H * 0.15)),
+                  key=lambda n: (n.b[1], n.b[3]))
+    gruppi, g = [], []
+    for n in cand:
+        if g and (abs(n.b[1] - g[0].b[1]) > 4 or abs(n.b[3] - g[0].b[3]) > 4):
+            gruppi.append(g)
+            g = []
+        g.append(n)
+    gruppi.append(g)
+    return [(min(x.b[1] for x in g), max(x.b[3] for x in g), {x.i for x in g}) for g in gruppi if len(g) >= 3]
+
+
 def controlla_sovrapposizioni(st, dove, fn=None):
     """Due cose toccabili una sopra l'altra (escluso il contenuto che scorre sotto le barre fisse, che è normale)."""
     app = [n for n in st.nodi if n.pkg == PKG and n.visibile]
+    # il contenuto che passa sotto una barra di pulsanti non conta, anche sulla prima schermata, quando la barra non
+    # è ancora stata vista restare ferma scorrendo (era il falso allarme «Andorra» sotto le schede, build del 21/11)
+    barre = barre_di_pulsanti(app)
+
+    def sotto_barra_di_pulsanti(n):
+        return any(n.i not in ids and min(n.b[3], y2) - max(n.b[1], y1) > 4 for y1, y2, ids in barre)
+
     tocc = [n for n in app if (n.clic or n.lungo or n.spunta) and not n.cls.endswith('WebView') and n.w < W - 4
-            and not sotto_una_barra(n, st.nodi)]
+            and not sotto_una_barra(n, st.nodi) and not sotto_barra_di_pulsanti(n)]
     for a in range(len(tocc)):
         for b in range(a + 1, len(tocc)):
             p, q = tocc[a], tocc[b]
@@ -598,7 +621,7 @@ def esplora_pagina(st, dove):
     # della stessa pagina possono mostrare gli stessi testi)
     def dove_stanno(x):
         return tuple((n.testo or n.desc, n.b[1]) for n in x.nodi if n.pkg == PKG and n.visibile and (n.testo or n.desc))
-    fermo = 0
+    fermo, in_fondo = 0, False
     while passi < 60:
         scorri(True, area)
         aspetta_fermo(2)
@@ -624,6 +647,7 @@ def esplora_pagina(st, dove):
         if dove_stanno(nuovo) == dove_stanno(attuale):
             fermo += 1
             if fermo >= 2:
+                in_fondo = True
                 break                            # due scorrimenti senza che si muova niente: è la fine
             continue
         fermo = 0
@@ -635,8 +659,12 @@ def esplora_pagina(st, dove):
             if e in fisse and abs(b[1] - fisse[e][1]) > 6:
                 problema('errore', 'grafica', dove, f'«{e[:20]}» si sposta di {abs(b[1] - fisse[e][1])} px quando si tira la pagina oltre la fine')
         aspetta_fermo(2)
-    # in fondo alla pagina il contenuto non deve finire sotto una barra fissa
-    if passi > 1 and fisse:
+    # in fondo alla pagina il contenuto non deve finire sotto una barra fissa. Solo se la fine è stata davvero
+    # raggiunta: una pagina più lunga di 60 scorrimenti si ferma a metà, dove il contenuto passa sotto la barra
+    # come deve (era il falso allarme sulle mancanti della Germania, build del 21/11)
+    if passi >= 60 and not in_fondo:
+        log(f'  (pagina più lunga di {passi} scorrimenti: il fondo non lo controllo)')
+    if passi > 1 and fisse and in_fondo:
         cima_barre = min((b[1] for b in fisse.values() if b[1] > H * 0.5), default=None)
         if cima_barre:
             coperti = [n for n in attuale.nodi if n.pkg == PKG and n.testo and n.visibile and n.b[1] < cima_barre - 4
@@ -997,13 +1025,41 @@ def numeri(st):
     return [n.testo for n in st.nodi if n.pkg == PKG and re.search(r'\d', n.testo)]
 
 
+def persistenza_dalla_home(perche):
+    """Ripiego quando non si riesce a tornare alla schermata di fine esplorazione (per esempio un filtro che l'app
+    ricorda e che, rifacendo il percorso, si spegne): il controllo si fa sulla schermata iniziale, che si raggiunge
+    sempre. I totali della collezione, chiusa e riaperta l'app, devono essere uguali."""
+    log(f'  ({perche}: controllo la schermata iniziale)')
+    avvia(freddo=True)
+    st = osserva()
+    if st.pkg != PKG:
+        log('  (l\'app non è in primo piano nemmeno da capo: salto)')
+        return
+    st = in_cima(st)
+    vivo = numeri(st)
+    if not vivo:
+        log('  (nessun numero nella schermata iniziale: salto)')
+        return
+    adb('shell input keyevent 3')
+    time.sleep(1)
+    adb(f'shell am kill {PKG}')
+    time.sleep(1)
+    avvia()
+    dopo = numeri(in_cima(osserva()))
+    if dopo != vivo:
+        diff = [x for x in dopo if x not in vivo][:3] or [x for x in vivo if x not in dopo][:3]
+        problema('errore', 'dati', 'schermata iniziale', f'dopo aver chiuso e riaperto l\'app i numeri cambiano: {diff}')
+    else:
+        log(f'  schermata iniziale: tutto come prima ({len(vivo)} numeri controllati)')
+
+
 def prova_persistenza():
     """Quello che si è fatto deve restare dopo aver chiuso l'app (anche se è Android a chiuderla in background)."""
     log('— Dati dopo chiusura e riapertura —')
     st = osserva()
     k = riconosci(st)
     if not k or st.pkg != PKG:
-        log('  (alla fine dell\'esplorazione non ero in una schermata nota: salto)')
+        persistenza_dalla_home('alla fine dell\'esplorazione non ero in una schermata nota')
         return
     st = in_cima(st)
     vivo = numeri(st)
@@ -1017,7 +1073,7 @@ def prova_persistenza():
     time.sleep(1)
     rifatto = rifai_percorso(SCHERMATE[k]['passi'])
     if rifatto is None:
-        log('  (non riesco a tornare alla stessa schermata: salto)')
+        persistenza_dalla_home('non riesco a tornare alla stessa schermata')
         return
     dopo = numeri(in_cima(rifatto))
     if dopo != vivo:
