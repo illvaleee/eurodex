@@ -26,6 +26,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * Dati nuovi (catalogo, schede, foto) scaricati in secondo piano, anche con l'app chiusa, appena arriva
@@ -36,6 +37,9 @@ import java.util.Set;
  */
 public class ScaricaDati extends Worker {
     static final String BASE = "https://raw.githubusercontent.com/illvaleee/collezione-euro-download/main/dati/";
+    // i nomi che arrivano dall'indice diventano percorsi di file e indirizzi: solo quelli previsti (R20)
+    static final Pattern FOTO = Pattern.compile("img/[0-9a-f]{1,64}\\.webp");
+    static final Pattern FILE_DATI = Pattern.compile("(catalog|details)(-[0-9]{1,9})?\\.json");
 
     public ScaricaDati(@NonNull Context c, @NonNull WorkerParameters p) { super(c, p); }
 
@@ -115,6 +119,7 @@ public class ScaricaDati extends Worker {
             JSONObject file = ix.optJSONObject("file");
             String fc = file != null ? file.optString("catalogo", "catalog.json") : "catalog.json";
             String fs = file != null ? file.optString("schede", "details.json") : "details.json";
+            if (!FILE_DATI.matcher(fc).matches() || !FILE_DATI.matcher(fs).matches()) return Result.success();
             // file con il numero dei dati (stesso schema della parte web, src/catalogo/dati.ts): quelli in uso non si
             // toccano mai, e per ultimo lo stato che indica i nuovi. Se il processo muore a metà restano i dati di prima
             String nomeCat = "catalogo-" + rev + ".json", nomeSch = "schede-" + rev + ".json";
@@ -127,7 +132,8 @@ public class ScaricaDati extends Worker {
             JSONArray img = ix.optJSONArray("img");
             JSONArray presenti = new JSONArray(); int nuove = 0, fallite = 0;
             if (img != null) for (int i = 0; i < img.length(); i++) {
-                String x = img.getString(i);
+                String x = img.optString(i, "");
+                if (!FOTO.matcher(x).matches()) { fallite++; continue; }
                 if (nellApk.contains(x)) continue;
                 File f = new File(dir, x);
                 if (locali.contains(x) && f.exists()) { presenti.put(x); continue; }
