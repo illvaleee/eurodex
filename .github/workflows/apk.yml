@@ -61,7 +61,7 @@ jobs:
           PUB=$(python3 -c "import json; print(json.load(open('pubblicata.json')).get('code',0))")
           # il version.json pubblicato viene da fuori: prima dell'aritmetica di bash deve essere solo un numero
           # (dentro $(( )) un valore come a[$(comando)] eseguirebbe il comando)
-          [[ "$PUB" =~ ^[0-9]{1,9}$ ]] || { echo "::error title=Versione::code non valido nel version.json pubblicato"; exit 1; }
+          [[ "$PUB" =~ ^(0|[1-9][0-9]{0,8})$ ]] || { echo "::error title=Versione::code non valido nel version.json pubblicato"; exit 1; }
           N=$(( PUB > 0 ? PUB + 1 : ${{ github.run_number }} ))
           { echo "impronta=$H"; echo "n=$N"; } >> "$GITHUB_OUTPUT"
           # avviato a mano si compila sempre; in automatico solo se app o catalogo sono cambiati
@@ -123,7 +123,7 @@ jobs:
       N: ${{ needs.controllo.outputs.n }}
     steps:
       - name: Numero di versione da controllo (solo cifre)
-        run: '[[ "$N" =~ ^[0-9]{1,9}$ ]] || { echo "::error title=Versione::numero di versione non valido"; exit 1; }'
+        run: '[[ "$N" =~ ^(0|[1-9][0-9]{0,8})$ ]] || { echo "::error title=Versione::numero di versione non valido"; exit 1; }'
 
       - uses: actions/checkout@v4
         with:
@@ -430,7 +430,7 @@ jobs:
       IMPRONTA: ${{ needs.controllo.outputs.impronta }}
     steps:
       - name: Numero di versione da controllo (solo cifre)
-        run: '[[ "$N" =~ ^[0-9]{1,9}$ ]] || { echo "::error title=Versione::numero di versione non valido"; exit 1; }'
+        run: '[[ "$N" =~ ^(0|[1-9][0-9]{0,8})$ ]] || { echo "::error title=Versione::numero di versione non valido"; exit 1; }'
 
       - uses: actions/checkout@v4
         with:
@@ -618,7 +618,7 @@ jobs:
       N: ${{ needs.controllo.outputs.n }}
     steps:
       - name: Numero di versione da controllo (solo cifre)
-        run: '[[ "$N" =~ ^[0-9]{1,9}$ ]] || { echo "::error title=Versione::numero di versione non valido"; exit 1; }'
+        run: '[[ "$N" =~ ^(0|[1-9][0-9]{0,8})$ ]] || { echo "::error title=Versione::numero di versione non valido"; exit 1; }'
 
       - uses: actions/checkout@v4
         with:
