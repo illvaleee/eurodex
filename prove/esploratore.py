@@ -1046,15 +1046,17 @@ def numeri(st):
 def numeri_iniziali(volte=6):
     """I numeri della schermata iniziale appena aperta, quando sono fermi: due letture uguali di fila a 2,5 secondi
     l'una dall'altra (all'avvio i contatori possono mostrare per un attimo valori calcolati prima che la collezione
-    sia caricata: consiglio di Claude 2 su #6). Si aspetta al massimo volte × 8 secondi."""
-    prima = []
-    for _ in range(volte * 3):
+    sia caricata: consiglio di Claude 2 su #6). Si aspetta al massimo volte × 8 secondi in tutto."""
+    prima, atteso = [], 0.0
+    while atteso <= volte * 8:
         st = osserva()
         n = numeri(st) if st.pkg == PKG else []
         if n and n == prima:
             return n
         prima = n
-        time.sleep(2.5 if n else 8)
+        pausa = 2.5 if n else 8
+        time.sleep(pausa)
+        atteso += pausa
     return []
 
 
