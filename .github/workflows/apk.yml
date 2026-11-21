@@ -233,6 +233,12 @@ jobs:
       - name: Strumenti per le prove (versioni e impronte fisse)
         run: pip install --quiet --require-hashes -r scripts/requisiti-prove.txt
 
+      # ffmpeg (pacchetto firmato di Ubuntu) unisce i pezzi del video della prova; senza, restano separati
+      - name: ffmpeg per il video della prova
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null ||
+            echo "::warning title=Video della prova::ffmpeg non installato: il video resta in pezzi"
+
       - name: Prova su un telefono Android simulato
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
