@@ -185,6 +185,9 @@ jobs:
           # i dati sono quelli appena salvati su main (il commit controllato da applica-dati.sh)
           git fetch -q origin main && git checkout -q -B main origin/main
           REV=$(python3 -c "import json;print(json.load(open('www/data/indice.json'))['rev'])")
+          # rev viene dai dati preparati da "scarica" (codice di terzi): qui deve essere solo un numero, e non entra
+          # mai nel testo di uno script (Python o shell), solo come argomento
+          [[ "$REV" =~ ^[0-9]{1,9}$ ]] || { echo "::error title=Dati::rev non valido in www/data/indice.json"; exit 1; }
           for i in 1 2 3; do
             rm -rf /tmp/dl && git clone -q --depth 1 git@github.com:illvaleee/collezione-euro-download.git /tmp/dl
             # catalogo e schede anche con il numero dei dati nel nome (catalog-REV.json): un file nuovo non passa dalla
@@ -192,9 +195,9 @@ jobs:
             # ultimi due numeri (per chi ha appena letto l'indice di prima) e i nomi semplici per le versioni vecchie.
             mkdir -p /tmp/dl/dati && find /tmp/dl/dati -mindepth 1 -maxdepth 1 ! -name 'catalog-*.json' ! -name 'details-*.json' -exec rm -rf {} +
             cp www/data/catalog.json www/data/details.json www/data/indice.json /tmp/dl/dati/ && cp -r www/data/img /tmp/dl/dati/img
-            cp www/data/catalog.json /tmp/dl/dati/catalog-$REV.json && cp www/data/details.json /tmp/dl/dati/details-$REV.json
+            cp www/data/catalog.json "/tmp/dl/dati/catalog-$REV.json" && cp www/data/details.json "/tmp/dl/dati/details-$REV.json"
             (cd /tmp/dl/dati && ls catalog-*.json | sort -V | head -n -2 | xargs -r rm -f && ls details-*.json | sort -V | head -n -2 | xargs -r rm -f)
-            python3 -c "import json;p='/tmp/dl/dati/indice.json';j=json.load(open(p));j['file']={'catalogo':'catalog-$REV.json','schede':'details-$REV.json'};json.dump(j,open(p,'w'),ensure_ascii=False,separators=(',',':'))"
+            python3 -c 'import json,sys;r=sys.argv[1];p="/tmp/dl/dati/indice.json";j=json.load(open(p));j["file"]={"catalogo":f"catalog-{r}.json","schede":f"details-{r}.json"};json.dump(j,open(p,"w"),ensure_ascii=False,separators=(",",":"))' "$REV"
             git -C /tmp/dl add -A dati
             if git -C /tmp/dl diff --cached --quiet; then echo "Dati già pubblicati"; echo "pubblicati=si" >> "$GITHUB_OUTPUT"; exit 0; fi
             git -C /tmp/dl -c user.name=eurodex -c user.email=eurodex@users.noreply.github.com commit -qm "Dati $REV"
