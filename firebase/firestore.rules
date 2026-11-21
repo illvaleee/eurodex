@@ -10,6 +10,9 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function mia(uid) { return request.auth != null && request.auth.uid == uid; }
 
+    // solo account Google: se un giorno si accendesse per sbaglio un altro metodo di accesso, non aprirebbe niente
+    function conGoogle() { return request.auth.token.firebase.sign_in_provider == 'google.com'; }
+
     // Valerio, l'unico amministratore. L'UID identifica, non autorizza: non è un segreto.
     function admin() {
       return request.auth != null && request.auth.uid == 'UID_DI_VALERIO'
@@ -22,6 +25,7 @@ service cloud.firestore {
     // lo stato si legge a ogni richiesta: una revoca ha effetto subito
     function approvato() {
       return request.auth != null
+        && conGoogle()
         && get(/databases/$(database)/documents/accessi/$(request.auth.uid)).data.stato == 'approvato';
     }
 
@@ -29,7 +33,7 @@ service cloud.firestore {
 
     match /accessi/{uid} {
       // la richiesta: una sola per account, fatta dalla persona stessa, sempre "in attesa", con i soli campi previsti
-      allow create: if mia(uid)
+      allow create: if mia(uid) && conGoogle()
         && request.resource.data.keys().hasOnly(['stato', 'nome', 'email', 'dispositivo', 'richiesta'])
         && request.resource.data.stato == 'in_attesa'
         && request.resource.data.nome is string && request.resource.data.nome.size() <= 80

@@ -43,7 +43,7 @@ def utente(sub, email, verificata=True):
     return j['localId'], j['idToken']
 
 
-def gettone_senza_firma(uid, email, verificata):
+def gettone_senza_firma(uid, email, verificata, metodo='google.com'):
     """Un gettone costruito a mano, come lo costruirebbe chi prova a ingannare le regole: l'emulatore di Firestore
     non controlla la firma (il server vero sì), quindi qui si prova solo cosa dicono le regole."""
     import base64, time
@@ -51,7 +51,7 @@ def gettone_senza_firma(uid, email, verificata):
     ora = int(time.time())
     corpo = {'iss': f'https://securetoken.google.com/{P}', 'aud': P, 'sub': uid, 'user_id': uid, 'email': email,
              'email_verified': verificata, 'iat': ora, 'exp': ora + 3600, 'auth_time': ora,
-             'firebase': {'sign_in_provider': 'google.com', 'identities': {}}}
+             'firebase': {'sign_in_provider': metodo, 'identities': {}}}
     return f"{b({'alg': 'none', 'typ': 'JWT'})}.{b(corpo)}."
 
 
@@ -122,6 +122,9 @@ ok(scrivi(t_mar, f'accessi/{MAR}', richiesta('mario@example.com', nome='x' * 81)
    'nome troppo lungo: rifiutato')
 ok(scrivi(t_mar, f'accessi/{MAR}', richiesta('mario@example.com'), esiste=False) == 403,
    'la data della richiesta la mette il server, non l\'app')
+t_mar_pw = gettone_senza_firma(MAR, 'mario@example.com', True, metodo='password')
+ok(scrivi(t_mar_pw, f'accessi/{MAR}', richiesta('mario@example.com'), ora=['richiesta'], esiste=False) == 403,
+   'una richiesta da un accesso che non è Google: rifiutata')
 ok(scrivi(t_mar, f'accessi/{MAR}', richiesta('mario@example.com'), ora=['richiesta'], esiste=False) == 200,
    'la richiesta giusta passa ("in attesa")')
 ok(scrivi(t_mar, f'accessi/{MAR}', {'stato': 'approvato'}, ora=['decisione'], esiste=True, maschera=['stato', 'decisione']) == 403,
@@ -158,6 +161,8 @@ carica_regole(VAL, obbligatorio=True)
 ok(scrivi(t_mar, f'collezioni/{MAR}/voci/f', {'e': {}}) == 200 and leggi(t_mar, f'collezioni/{MAR}/voci/f') == 200,
    'Mario (approvato) sincronizza')
 ok(leggi(t_mar, f'collezioni/{LUC}/voci/f') == 403, 'Mario non legge la collezione di Lucia')
+ok(leggi(gettone_senza_firma(MAR, 'mario@example.com', True, metodo='password'), f'collezioni/{MAR}/voci/f') == 403,
+   'Mario approvato, ma entrato senza Google: non legge la sua collezione')
 ok(scrivi(t_luc, f'collezioni/{LUC}/voci/f', {'e': {}}) == 403 and leggi(t_luc, f'collezioni/{LUC}') == 403,
    'Lucia (rifiutata) non legge e non scrive niente')
 ok(scrivi(t_luc, f'collezioni/{LUC}/eventi/e1', {'testo': 'ciao'}) == 403,
