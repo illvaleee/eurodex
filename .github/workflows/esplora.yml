@@ -102,6 +102,9 @@ jobs:
             local dir="risultati/$1" gd="$RUNNER_TEMP/git-$2"
             [ -d "$dir" ] || { echo "Niente risultati per il ramo $2"; return 0; }
             [ -z "$(find "$dir" -type l -print -quit)" ] || { echo "::error::collegamenti simbolici nell'artifact $1: non lo salvo"; errori=1; return 0; }
+            # una cartella .git dentro l'artifact (anche in una sottocartella) non deve diventare un rimando a un altro
+            # repository né far fallire git add: si toglie, tanto i risultati sono solo file
+            find "$dir" -name .git -prune -exec rm -rf {} +
             g() { git --git-dir="$gd" --work-tree="$dir" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }
             { g init -q -b "$2" && g add -A &&
               { g -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "$3" || true; } &&
