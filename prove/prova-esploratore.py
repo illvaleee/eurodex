@@ -146,5 +146,13 @@ finta_riapertura(['1575', '4818', '33%'], ['1574', '4818', '33%'])
 E.persistenza_dalla_home('non riesco a tornare alla stessa schermata')
 ok(any(p['tipo'] == 'dati' for p in E.PROBLEMI), 'riaperta l\'app, un totale cambia: segnalato come errore di dati')
 
+# 8. il resoconto finale: i percorsi delle schermate si scrivono senza far cadere l'esploratore (prima cercava un campo
+#    'percorso' che non esiste: KeyError alla fine di ogni esplorazione, quindi il job falliva sempre)
+az = E.Azione(tipo='tocca', etichetta='Mancanti', forma=('Button', 1, 1), centro=(1, 1))
+ok(E.percorso_leggibile([(az, 'Eurodex', 'Mancanti')]) == 'tocco «Mancanti»' and E.percorso_leggibile([]) == "all'apertura",
+   'il resoconto scrive i percorsi delle schermate (niente più KeyError alla fine)')
+sorgente = open(os.path.join(QUI, 'esploratore.py'), encoding='utf-8').read()
+ok("v['percorso']" not in sorgente and 'v["percorso"]' not in sorgente, 'nessun riferimento al campo che non esiste')
+
 print('RISULTATO:', 'TUTTO OK' if not fallite else f'{len(fallite)} PROBLEMI')
 raise SystemExit(1 if fallite else 0)

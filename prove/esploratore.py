@@ -1104,6 +1104,11 @@ def giro_configurazione(nome, prepara, ripristina):
     W, H, DPI = schermo()
 
 
+def percorso_leggibile(passi):
+    """Come si arriva a una schermata, per il resoconto: i passi sono (azione, da, a)."""
+    return ' → '.join(str(p[0]) for p in passi) or "all'apertura"
+
+
 def stress():
     log('— Stress test: 3000 tocchi, scorrimenti e gesti a caso, 8 al secondo (monkey di Android) —')
     avvia(freddo=True)
@@ -1169,7 +1174,7 @@ def main():
         f.write(f'- schermate trovate: {len(SCHERMATE)}\n- azioni provate: {CONTEGGI["azioni"]}\n')
         f.write(f'- errori: {len(errori)}\n- avvisi: {len(avvisi)}\n\n## Schermate\n\n')
         for v in SCHERMATE.values():
-            f.write(f'- **{v["nome"]}** ({v["foto"]}): ' + (' → '.join(v['percorso']) or 'all\'apertura') + '\n')
+            f.write(f'- **{v["nome"]}** ({v["foto"]}): {percorso_leggibile(v["passi"])}\n')
         for titolo, elenco in (('Errori', errori), ('Avvisi', avvisi)):
             f.write(f'\n## {titolo}\n\n')
             for p in elenco:
