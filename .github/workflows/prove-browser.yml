@@ -26,9 +26,10 @@ jobs:
         run: npm ci --no-audit --no-fund && npm run verifica && npm run build
       - name: Browser ed emulatori di Firebase
         run: |
-          pip install --quiet playwright
+          pip install --quiet --require-hashes -r prove/requisiti-browser.txt
           python3 -m playwright install --with-deps chromium >/dev/null
-          npm install --no-save --no-audit --no-fund firebase-tools
+          # firebase-tools a versione fissa, con il lockfile (lo stesso di sincronizzazione.yml)
+          (cd firebase/strumenti && npm ci --no-audit --no-fund --silent)
       - name: Prove
         run: PROVE_FOTO=$PWD/prove-foto bash prove/esegui.sh
       - name: Diario delle prove
