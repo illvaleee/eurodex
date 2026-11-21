@@ -2,29 +2,81 @@ rules_version = '2';
 // Stessa collezione su più dispositivi: ogni collezione sta in collezioni/{uid}, dove uid è l'utente di
 // Firebase legato all'account Google con cui si accede nell'app. Solo chi ha fatto l'accesso con quel
 // account può leggerla o modificarla; nessuno può elencare o cancellare le collezioni.
+//
+// Accesso solo su approvazione (docs/progetto-accesso-su-approvazione.md): chi accede manda una richiesta
+// (accessi/{uid}, "in_attesa") e solo Valerio la accetta o la rifiuta. Quando l'accesso diventa obbligatorio
+// (accessoObbligatorio() = true, passo 4 del passaggio) le collezioni sono solo per gli account approvati.
 service cloud.firestore {
   match /databases/{database}/documents {
     function mia(uid) { return request.auth != null && request.auth.uid == uid; }
+
+    // Valerio, l'unico amministratore. L'UID identifica, non autorizza: non è un segreto.
+    function admin() {
+      return request.auth != null && request.auth.uid == 'UID_DI_VALERIO'
+        && request.auth.token.email_verified == true;
+    }
+
+    // false finché non si fa il passo 4 del passaggio: fino ad allora tutto funziona come prima
+    function accessoObbligatorio() { return false; }
+
+    // lo stato si legge a ogni richiesta: una revoca ha effetto subito
+    function approvato() {
+      return request.auth != null
+        && get(/databases/$(database)/documents/accessi/$(request.auth.uid)).data.stato == 'approvato';
+    }
+
+    function puoUsare(uid) { return mia(uid) && (!accessoObbligatorio() || admin() || approvato()); }
+
+    match /accessi/{uid} {
+      // la richiesta: una sola per account, fatta dalla persona stessa, sempre "in attesa", con i soli campi previsti
+      allow create: if mia(uid)
+        && request.resource.data.keys().hasOnly(['stato', 'nome', 'email', 'dispositivo', 'richiesta'])
+        && request.resource.data.stato == 'in_attesa'
+        && request.resource.data.nome is string && request.resource.data.nome.size() <= 80
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.dispositivo is string && request.resource.data.dispositivo.size() <= 80
+        && request.resource.data.richiesta == request.time;
+      allow get: if mia(uid) || admin();
+      allow list, delete: if admin();
+      // solo Valerio decide: cambia lo stato (e la sua nota), il resto della richiesta resta com'è
+      allow update: if admin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stato', 'decisione', 'nota'])
+        && request.resource.data.stato in ['in_attesa', 'approvato', 'rifiutato', 'revocato']
+        && request.resource.data.decisione == request.time
+        && (!('nota' in request.resource.data)
+            || (request.resource.data.nota is string && request.resource.data.nota.size() <= 200));
+
+      // i dispositivi di un account (per le notifiche): li gestisce solo l'account stesso, e solo se può usare l'app
+      match /dispositivi/{did} {
+        allow get, list, delete: if puoUsare(uid);
+        allow create, update: if puoUsare(uid) && did.matches('^[A-Za-z0-9_-]{8,64}$')
+          && request.resource.data.keys().hasOnly(['token', 'nome', 'aggiornato'])
+          && request.resource.data.token is string && request.resource.data.token.size() <= 4096
+          && request.resource.data.nome is string && request.resource.data.nome.size() <= 80
+          && request.resource.data.aggiornato == request.time;
+      }
+    }
+
     match /collezioni/{uid} {
-      allow get, create, update: if mia(uid);
+      allow get, create, update: if puoUsare(uid);
       allow list, delete: if false;
       // formato attuale: le voci della collezione (monete, preferite, note) con l'istante dell'ultima modifica,
       // divise in pochi documenti (possedute in 16 parti, preferite, note in 4 parti)
       match /voci/{doc} {
-        allow read: if mia(uid);
-        allow create, update: if mia(uid) && doc.matches('^(p[0-9a-f]|f|n[0-3])$')
+        allow read: if puoUsare(uid);
+        allow create, update: if puoUsare(uid) && doc.matches('^(p[0-9a-f]|f|n[0-3])$')
           && request.resource.data.keys().hasOnly(['e']) && request.resource.data.e is map;
         allow delete: if false;
       }
       // formato delle versioni fino alla 1.0.78 (ancora letto e scritto finché tutti non aggiornano)
       match /stato/{doc} {
-        allow read, write: if mia(uid) && doc in ['possedute', 'preferiti', 'note'];
+        allow read, write: if puoUsare(uid) && doc in ['possedute', 'preferiti', 'note'];
       }
       match /dispositivi/{did} {
-        allow read, write: if mia(uid);
+        allow read, write: if puoUsare(uid);
       }
       match /eventi/{eid} {
-        allow create: if mia(uid) && request.resource.data.testo is string && request.resource.data.testo.size() < 600;
+        allow create: if puoUsare(uid) && request.resource.data.testo is string && request.resource.data.testo.size() < 600;
         allow read, update, delete: if false;
       }
     }
