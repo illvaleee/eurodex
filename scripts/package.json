@@ -1,0 +1,9 @@
+{
+  "name": "eurodex-script-catalogo",
+  "private": true,
+  "type": "module",
+  "description": "Solo per il giro del catalogo (catalogo.yml): l'unico pacchetto che usano gli script del catalogo è sharp (foto), a versione fissa con il lockfile, invece di tutto npm ci dell'app",
+  "dependencies": {
+    "sharp": "0.35.5"
+  }
+}

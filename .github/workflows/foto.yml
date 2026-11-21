@@ -4,31 +4,70 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: catalogo
   cancel-in-progress: false
 
+# Come nel catalogo: gli script e sharp girano senza permesso di scrittura e preparano un commit locale; lo salva su
+# main il job "pubblica", dove non gira nessun pacchetto, solo se tocca esclusivamente i file dei dati.
 jobs:
-  foto:
+  scarica:
+    if: ${{ github.repository == 'illvaleee/eurodex' && github.ref == 'refs/heads/main' }}
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    outputs:
+      cambi: ${{ steps.salva.outputs.cambi }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Dipendenze
-        run: npm install --no-audit --no-fund
+      - name: Dipendenze (solo sharp, versione fissa dal lockfile di scripts/)
+        run: (cd scripts && npm ci --no-audit --no-fund --ignore-scripts)
       - name: Pagine BCE
         run: node scripts/fetch-ecb.mjs
       - name: Immagini
         run: if [ -f scripts/ecb-images.mjs ]; then node scripts/ecb-images.mjs; fi
-      - name: Salva nel repository
+      - name: Commit locale (a scriverlo nel progetto è il job "pubblica")
+        id: salva
         if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898099+github-actions[bot]@users.noreply.github.com"
           git add scripts/ecb-cache www/data || true
-          if git diff --cached --quiet; then echo "Niente di nuovo da salvare"; else git commit -m "Foto BCE ($(date +%F))" && git pull --rebase -X theirs -q origin main && git push; fi
+          if git diff --cached --quiet; then
+            echo "Niente di nuovo da salvare"; echo "cambi=no" >> "$GITHUB_OUTPUT"
+          else
+            git commit -qm "Foto BCE ($(date +%F))"
+            git bundle create "$RUNNER_TEMP/foto.bundle" "$GITHUB_SHA..HEAD"
+            echo "cambi=si" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Il commit per il job "pubblica"
+        if: ${{ always() && steps.salva.outputs.cambi == 'si' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: foto-bundle
+          path: ${{ runner.temp }}/foto.bundle
+          retention-days: 7
+
+  pubblica:
+    needs: scarica
+    if: ${{ !cancelled() && needs.scarica.outputs.cambi == 'si' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: foto-bundle
+          path: ${{ runner.temp }}/bundle
+      - name: Salva nel repository (solo i file dei dati)
+        run: bash scripts/applica-dati.sh "$RUNNER_TEMP/bundle/foto.bundle" "Foto BCE ($(date +%F)) [skip ci]"
