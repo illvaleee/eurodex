@@ -1,6 +1,7 @@
 # Progetto: accesso a Eurodex solo su approvazione
 
-Stato: **bozza da rivedere** (Claude 1, 21/11/2026). Niente codice finché Claude 2 e Claude 3 non l'hanno rivisto e
+Stato: **bozza, rivista da Claude 2 e Claude 3 il 21/11** (le decisioni sono in §9; aspetta la risposta di Valerio
+su A/B, §9.1). Niente codice finché Claude 2 e Claude 3 non l'hanno rivisto e
 Valerio non l'ha approvato.
 
 ## 1. Lo scopo (parole di Valerio, 21/11)
@@ -228,3 +229,86 @@ diretta, la revoca) e sul telefono vero di Valerio, con il suo account. → **Do
 6. Passaggio (punto 5), con Valerio presente.
 
 Ogni passo ha le sue prove ed è rivisto da tutti e tre prima di andare su main.
+
+## 9. Revisione di Claude 2 e Claude 3 (21/11): decisioni
+
+Questi punti hanno la precedenza su quello che c'è scritto sopra, dove sono in contrasto.
+
+### 9.1 Servizi o anche contenuti (da decidere con Valerio)
+
+Il progetto, così com'è, protegge i **servizi**. Con eurodex pubblico, alcune cose restano scaricabili da chiunque abbia
+un account GitHub:
+- le release pubbliche con l'APK firmato (`gh release create`);
+- gli artifact `apk-prova` (un'app funzionante, firmata con la chiave di prova) e `apk-non-firmato`;
+- `www/data`, cioè catalogo, schede e foto;
+- i rami `prove*` ed `esplorazione`, con le schermate.
+
+**A**: bastano i servizi, e il progetto resta com'è. **B**: anche app e contenuti riservati, quindi niente release
+pubbliche, niente APK negli artifact e dati fuori dal progetto pubblico (almeno una parte torna privata, con il costo
+in minuti di GitHub Actions). Claude 2 e Claude 1 l'hanno chiesto a Valerio; la risposta decide il passo 5.
+
+### 9.2 Storage
+
+- **Mai `getDownloadURL()`.** Gli indirizzi con il token di download non passano dalle regole. L'app usa
+  `getBytes`, `getStream` o `getFile` dell'SDK, che mandano il gettone dell'utente.
+- **I workflow caricano senza token di download**: niente `firebaseStorageDownloadTokens` nei metadati.
+- **Regole con `firestore.get()`**: alla prima pubblicazione Firebase chiede di dare un ruolo all'account di servizio
+  di Storage. È un'azione per Valerio.
+- **Costi**: Storage richiede il piano Blaze (c'è già per le funzioni). Per i bucket nuovi la parte gratuita vale solo
+  in US-CENTRAL1, US-EAST1 e US-WEST1, mentre un bucket in Europa si paga dal primo byte. Con questi volumi sono
+  centesimi, ma la regione va scelta quando si crea il bucket. L'avviso di spesa da 5 € resta.
+  Fonte: https://firebase.google.com/docs/storage/faqs-storage-changes-announced-sept-2024.
+
+### 9.3 Avvisi agli approvati: li manda una funzione, non GitHub (sostituisce §4.5, punto 1)
+
+In Firestore i permessi IAM valgono per tutto il database. Se `invia-avviso.py` leggesse i token con l'SDK Admin, la
+chiave di GitHub (`FIREBASE_INVIO_JSON`, anche nell'environment `catalogo`, che è senza revisori) leggerebbe tutte le
+collezioni e tutte le richieste. Quindi:
+- il workflow carica `rilasci/version.json` o `dati/indice.json` su Storage;
+- una funzione `onObjectFinalized` legge i token, controlla lo stato di ogni account e manda gli avvisi;
+- la chiave di GitHub serve solo a scrivere su Storage, limitata a bucket e percorsi con le condizioni IAM;
+- `FIREBASE_INVIO_JSON` perde il permesso di Cloud Messaging, oppure viene sostituita.
+
+### 9.4 Lavori in background: serve una sessione nativa (aperto)
+
+`ScaricaDati` e `ControlloAggiornamenti` girano in WorkManager, nella parte nativa, mentre l'accesso oggi sta nella
+parte web (SDK JS). Con Storage, i lavori in background hanno bisogno di un gettone valido, e il gettone dura un'ora.
+Va deciso dove vive la sessione:
+- **Firebase Auth nativo**, condiviso con la parte web tramite un plugin di Capacitor;
+- oppure la **parte web passa i gettoni**: in quel caso in background si scarica solo finché il gettone è valido.
+
+Da decidere prima di scrivere la parte dell'app.
+
+### 9.5 Richieste: il nome non è affidabile (fatto in #8)
+
+Si decide sull'email del gettone, e il nome è solo un aiuto. Nelle regole, `nome` e `dispositivo` sono
+`[^@\p{Cc}\p{Cf}]{0,80}`: niente `@` per fingersi un altro, niente a capo né caratteri di direzione (provato con RE2
+e sull'emulatore). La notifica a Valerio comincia con l'email, e nella sua sezione l'email è in evidenza.
+Accesso solo con Google anche nelle regole: `conGoogle()` in `create`, in `approvato()` e in `admin()`.
+
+### 9.6 Richieste a raffica e dati personali (sostituisce §4.8 e §4.9 dove diversi)
+
+- **App Check**: resta fuori.
+- **Notifiche a Valerio a rate**: al massimo una ogni tanto, con il numero di richieste nuove.
+- **Un tetto**: oltre N richieste nuove al giorno, la funzione cancella le successive.
+- **Pulizia**: le richieste rifiutate o mai decise si cancellano da sole dopo 30 giorni, con una funzione programmata.
+
+### 9.7 Le prove dell'APK (decide §6.1): B, con due condizioni
+
+1. La proprietà `debug.eurodex.prove` **salta solo la schermata di accesso**: non cambia indirizzi né regole. Su
+   Android le proprietà `debug.*` le può mettere solo chi ha adb o il root, cioè chi potrebbe già modificare l'APK.
+2. Le prove che **scaricano dall'app** (`aggiornamento`, la parte scaricata di `sopra`), quando aggiornamenti e
+   contenuti passano a Storage, senza un account approvato non scaricano più niente. Servono gli emulatori di Auth e
+   Storage per quei flussi, raggiungibili dal telefono simulato a `10.0.2.2` (strada C, con la stessa proprietà),
+   oppure quella parte si prova sul telefono vero. Va scelto prima di scrivere l'app.
+
+### 9.8 Passo 5, reso esplicito (dipende da §9.1)
+
+- togliere `dati/` dalla pagina pubblica;
+- fermare `gh release create`, oppure fare le release come bozze;
+- `controllo` legge la versione pubblicata da Storage invece che dalla pagina pubblica.
+
+### 9.9 Gli account che reggono tutto
+
+Tutto si regge sull'account Google di Valerio (`admin()`) e su quello GitHub, dove lui è il revisore di
+`pubblicazione`. Su tutti e due serve la **verifica in due passaggi**: Claude 3 l'ha chiesto a Valerio.
