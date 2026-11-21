@@ -70,9 +70,19 @@ E.controlla_sovrapposizioni(Schermo([radice] + barra), 'Eurodex')
 ok(any('Catalogo' in p['cosa'] for p in E.PROBLEMI), 'due pulsanti della barra sovrapposti: segnalati')
 
 
+# 3b. un pulsante fisso (già visto restare fermo scorrendo) sopra un pulsante della barra: va segnalato
+pulisci()
+galleggiante = nodo(1, 'Aggiungi', (850, 2120, 1060, 2300))
+barra = schede()
+# come nell'esplorazione vera: scorrendo si sono visti restare fermi sia la barra sia il pulsante
+for x in barra + [galleggiante]:
+    E.FISSE[x.testo] = x.b
+E.controlla_sovrapposizioni(Schermo([radice, galleggiante] + barra), 'Collezione')
+ok(any('Aggiungi' in p['cosa'] for p in E.PROBLEMI), 'un pulsante fisso sopra la barra delle schede: segnalato')
+
 # 4 e 5. il fondo della pagina: una pagina lunghissima (non finisce entro 60 scorrimenti) e una che finisce con
 #        l'ultima riga coperta dalla barra
-def pagina_finta(righe, altezza_riga=180, passo=900):
+def pagina_finta(righe, altezza_riga=180, passo=900, coperta_in_fondo=False):
     stato = {'y': 0}
     fine = max(0, righe * altezza_riga + 300 - 2170)
 
@@ -81,7 +91,10 @@ def pagina_finta(righe, altezza_riga=180, passo=900):
         for r in range(righe):
             y = 300 + r * altezza_riga - stato['y']
             if -altezza_riga < y < 2400:
-                nodi.append(nodo(len(nodi), f'Riga {r}', (40, y, 1040, y + altezza_riga - 20), clic=False))
+                b = (40, y, 1040, y + altezza_riga - 20)
+                if coperta_in_fondo and r == righe - 1 and stato['y'] == fine:
+                    b = (40, 2100, 1040, 2260)      # in fondo vero l'ultima riga finisce sotto la barra
+                nodi.append(nodo(len(nodi), f'Riga {r}', b, clic=False))
         return indicizza(nodi + schede())
 
     def osserva():
@@ -103,7 +116,12 @@ st = pagina_finta(righe=400)             # 400 righe: ben oltre 60 scorrimenti
 E.esplora_pagina(st, 'Mancanti')
 ok(not any('resta coperto' in p['cosa'] for p in E.PROBLEMI), 'pagina più lunga di 60 scorrimenti: nessun falso «coperto»')
 diario = open(os.path.join(sys.argv[2], 'diario.txt'), encoding='utf-8').read()
-ok('il fondo non lo controllo' in diario, 'e il diario dice che il fondo non è stato controllato')
+ok('in fondo con gli scorrimenti veloci' in diario, 'e ci arriva in fondo con gli scorrimenti veloci (il fondo si controlla)')
+
+pulisci()
+st = pagina_finta(righe=400, coperta_in_fondo=True)
+E.esplora_pagina(st, 'Mancanti')
+ok(any('resta coperto' in p['cosa'] for p in E.PROBLEMI), 'pagina lunghissima con l\'ultima riga coperta in fondo vero: segnalata')
 
 pulisci()
 st = pagina_finta(righe=30)

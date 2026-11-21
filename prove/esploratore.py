@@ -508,6 +508,9 @@ def controlla_sovrapposizioni(st, dove, fn=None):
     barre = barre_di_pulsanti(app)
 
     def sotto_barra_di_pulsanti(n):
+        # un elemento già visto restare fermo scorrendo (FISSE) non è contenuto che scorre: se tocca la barra, conta
+        if etichetta(st.nodi, n) in FISSE:
+            return False
         return any(n.i not in ids and min(n.b[3], y2) - max(n.b[1], y1) > 4 for y1, y2, ids in barre)
 
     tocc = [n for n in app if (n.clic or n.lungo or n.spunta) and not n.cls.endswith('WebView') and n.w < W - 4
@@ -663,7 +666,22 @@ def esplora_pagina(st, dove):
     # raggiunta: una pagina più lunga di 60 scorrimenti si ferma a metà, dove il contenuto passa sotto la barra
     # come deve (era il falso allarme sulle mancanti della Germania, build del 21/11)
     if passi >= 60 and not in_fondo:
-        log(f'  (pagina più lunga di {passi} scorrimenti: il fondo non lo controllo)')
+        # pagina lunghissima (come le mancanti della Germania): si arriva in fondo in fretta, con scorrimenti senza
+        # osservare, e il fondo si controlla lì (consiglio di Claude 2 su #6)
+        for _ in range(6):                       # al massimo 6 × 25 scorrimenti veloci
+            for _ in range(25):
+                scorri(True, area)
+            passi += 25
+            aspetta_fermo(2)
+            nuovo = osserva()
+            if dove_stanno(nuovo) == dove_stanno(attuale):
+                in_fondo = True
+                break
+            attuale = nuovo
+        if in_fondo:
+            log(f'  (pagina lunga: in fondo con gli scorrimenti veloci, {passi} in tutto)')
+        else:
+            log(f'  (pagina più lunga di {passi} scorrimenti: il fondo non lo controllo)')
     if passi > 1 and fisse and in_fondo:
         cima_barre = min((b[1] for b in fisse.values() if b[1] > H * 0.5), default=None)
         if cima_barre:
