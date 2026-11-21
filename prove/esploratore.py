@@ -1063,7 +1063,11 @@ def persistenza_dalla_home(perche):
     avvia(freddo=True)
     vivo = numeri_iniziali()
     if not vivo:
-        log('  (nessun numero nella schermata iniziale, nemmeno aspettando: salto)')
+        # per capire il perché alla prossima run: cosa c'era sullo schermo (app in primo piano, primi testi, foto)
+        st = osserva()
+        testi = [x.testo for x in st.nodi if x.testo][:8]
+        log(f'  (nessun numero nella schermata iniziale, nemmeno aspettando: salto · in primo piano {st.pkg or "?"}, '
+            f'testi {testi}, foto {foto("iniziale_senza_numeri")})')
         return
     adb('shell input keyevent 3')
     time.sleep(1)
