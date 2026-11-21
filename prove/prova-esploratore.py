@@ -172,6 +172,16 @@ diario = open(os.path.join(sys.argv[2], 'diario.txt'), encoding='utf-8').read()
 ok(not E.PROBLEMI and diario.count('schermata iniziale: tutto come prima') >= 2,
    'con l\'animazione d\'avvio ancora in corso aspetta i numeri invece di saltare')
 
+# 7b. la schermata iniziale senza numeri: si salta, ma il diario dice cosa c'era (e non cade)
+pulisci()
+finta_riapertura([], [])
+E.numeri = lambda st: []
+E.osserva = lambda: E.Stato(nodi=[nodo(0, 'Benvenuto in Eurodex', (0, 0, 10, 10))], pkg=PKG, chiave='x', firma='',
+                            azioni=[], nome='Eurodex')
+E.persistenza_dalla_home('non riesco a tornare alla stessa schermata')
+diario = open(os.path.join(sys.argv[2], 'diario.txt'), encoding='utf-8').read()
+ok('Benvenuto in Eurodex' in diario and 'in primo piano' in diario, 'senza numeri il diario dice app e testi sullo schermo')
+
 # 8. il resoconto finale: i percorsi delle schermate si scrivono senza far cadere l'esploratore (prima cercava un campo
 #    'percorso' che non esiste: KeyError alla fine di ogni esplorazione, quindi il job falliva sempre)
 az = E.Azione(tipo='tocca', etichetta='Mancanti', forma=('Button', 1, 1), centro=(1, 1))
