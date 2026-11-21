@@ -1,6 +1,29 @@
 [
  {
+  "id": 20,
+  "titolo": "Percentuale per anno nei commemorativi, sincronizzazione più chiara",
+  "data": "2026-11-21",
+  "avviso": "Nei commemorativi la percentuale di ogni anno; sincronizzazione più chiara e precisa",
+  "nuovo": [
+   "Catalogo → Comm.: su ogni anno, in alto a destra, la percentuale di commemorative che hai di quell'anno"
+  ],
+  "migliorato": [
+   "«Sincronizza ora» dice com'è andata: modifiche inviate, tutto già allineato oppure senza connessione. Se ci sono modifiche che aspettano la rete, lo vedi scritto",
+   "Le notifiche della sincronizzazione arrivano in una sola notifica che si aggiorna, con le ultime modifiche e il nome del dispositivo; mentre usi l'app non arrivano",
+   "Dopo un ripristino puoi usare lo stesso file anche per il backup automatico",
+   "«Annulla» dopo aver azzerato, ripristinato o importato toglie solo quello che hai fatto tu: le modifiche arrivate nel frattempo dagli altri dispositivi restano",
+   "Il messaggio dopo «Controlla aggiornamenti» resta qualche secondo in più"
+  ],
+  "corretto": [
+   "Una modifica fatta senza rete e arrivata in ritardo non copre più quella più recente fatta su un altro dispositivo",
+   "Le percentuali arrivano a 100% solo quando hai davvero tutto, e mostrano 0% solo quando non hai niente",
+   "Nella proposta di accedere con Google si vede di nuovo tutta la frase in fondo («Puoi farlo quando vuoi…»)",
+   "Singolare e plurale giusti nei testi dell'app (1 moneta, 2 monete)"
+  ]
+ },
+ {
   "id": 19,
+  "v": 79,
   "titolo": "Catalogo in PDF, app rifatta da capo, sincronizzazione più solida",
   "data": "2026-11-20",
   "avviso": "Nuovo: il catalogo in PDF con le tabelle per paese. Sincronizzazione più affidabile e app più accessibile",
