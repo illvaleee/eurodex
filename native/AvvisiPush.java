@@ -40,6 +40,12 @@ public class AvvisiPush extends FirebaseMessagingService {
             } catch (Exception ignored) {}
             return;
         }
+        // accesso su approvazione (richiesta nuova per Valerio, approvazione per chi aspetta): con l'app aperta lo dice
+        // l'app; ad app chiusa questi messaggi non passano da qui, la notifica (titolo e testo) la mostra Android
+        if ("accesso".equals(d.get("tipo")) || "approvato".equals(d.get("tipo"))) {
+            NativoPlugin.accesso(d);
+            return;
+        }
         // dati nuovi (catalogo, schede, foto): non serve installare niente, l'app li scarica quando si apre
         if ("dati".equals(d.get("tipo"))) {
             try {

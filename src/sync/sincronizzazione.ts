@@ -546,6 +546,33 @@ async function credenzialeGoogle(silenzioso: boolean): Promise<string> {
   throw new Error('nonDisponibile');
 }
 
+/** Perché non si è avuto il gettone di Google: annullato, nessun account sul telefono o accesso non disponibile. */
+function esitoCredenziale(e: unknown): EsitoAccesso {
+  const m = messaggio(e);
+  if (/annullato/i.test(m)) return { ok: false, motivo: 'annullato' };
+  if (/nessun account|NoCredential/i.test(m)) return { ok: false, motivo: 'nessunAccount' };
+  return { ok: false, motivo: 'nonDisponibile', dettaglio: m };
+}
+
+/**
+ * Solo l'accesso all'account Google, senza sincronizzare niente: serve con il muro acceso per chiedere l'accesso a
+ * Eurodex (la sincronizzazione parte dopo, quando Valerio approva).
+ */
+export async function accediSoloAccount(): Promise<EsitoAccesso> {
+  let idToken: string;
+  try {
+    idToken = await credenzialeGoogle(false);
+  } catch (e) {
+    return esitoCredenziale(e);
+  }
+  try {
+    await (await firebase()).accediConToken(idToken);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, motivo: 'rete', dettaglio: messaggio(e) };
+  }
+}
+
 /**
  * Accesso con Google: da quel momento la collezione è quella dell'account, unita a quella di questo dispositivo
  * (niente va perso: quello che c'è solo qui si aggiunge all'account).
@@ -555,10 +582,7 @@ export async function accedi(silenzioso = false): Promise<EsitoAccesso> {
   try {
     idToken = await credenzialeGoogle(silenzioso);
   } catch (e) {
-    const m = messaggio(e);
-    if (/annullato/i.test(m)) return { ok: false, motivo: 'annullato' };
-    if (/nessun account|NoCredential/i.test(m)) return { ok: false, motivo: 'nessunAccount' };
-    return { ok: false, motivo: 'nonDisponibile', dettaglio: m };
+    return esitoCredenziale(e);
   }
   try {
     const user = await (await firebase()).accediConToken(idToken);

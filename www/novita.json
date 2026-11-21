@@ -1,5 +1,15 @@
 [
   {
+    "id": 21,
+    "titolo": "Eurodex su invito",
+    "data": "2026-11-21",
+    "avviso": "Eurodex diventa su invito: puoi già chiedere l'accesso a Valerio dalle impostazioni",
+    "nuovo": [
+      "Impostazioni → Accesso: chiedi l'accesso a Valerio. Quando lui accenderà l'accesso su invito, Eurodex con sincronizzazione e notifiche lo userà solo chi ha approvato",
+      "Chi non è approvato vede una schermata per accedere con Google e chiedere l'accesso; appena Valerio approva, la schermata si apre da sola e arriva una notifica"
+    ]
+  },
+  {
     "id": 20,
     "titolo": "Percentuale per anno nei commemorativi, sincronizzazione più chiara",
     "data": "2026-11-21",

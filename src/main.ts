@@ -21,6 +21,7 @@ import {
   sincronizzazioneAttiva,
   stessoDispositivo,
 } from './sync/sincronizzazione';
+import { aggiornaMuro, controllaMuro, preparaAmministratore } from './sync/muro';
 import { avviso } from './ui/avvisi';
 import { attivaAzioni } from './ui/azioni';
 import { aggiornaContatori } from './ui/contatori';
@@ -53,12 +54,18 @@ async function azioneNotifica(a: string | undefined, allAvvio: boolean): Promise
     if (!document.body.classList.contains('open-sheet') && stato.stack[stato.stack.length - 1]?.v !== 'hist')
       vai('hist', {});
   } else if (a === 'dati') await usaDatiGiaScaricati();
+  else if (a === 'accessi') {
+    // una richiesta di accesso (notifica di Valerio): si apre la sua sezione
+    const { apriGestioneAccessi } = await import('./viste/accesso');
+    await apriGestioneAccessi();
+  } else if (a === 'accesso') await aggiornaMuro(); // approvato: il muro si toglie da solo
 }
 
 const ogniTanto = (ultima: number | undefined, ore: number) => Date.now() - (ultima ?? 0) > ore * 3600e3;
 
 /** L'app torna in primo piano: backup se serve, aggiornamenti e dati nuovi ogni tanto. */
 function alRitorno(): void {
+  void aggiornaMuro(); // Valerio potrebbe aver acceso o spento il muro, o approvato questo account
   if (meta.drive && meta.driveSporco) void backupNativo();
   if (ogniTanto(meta.updChecked, 6)) void controllaAggiornamento(false);
   void usaDatiGiaScaricati().then(arrivati => {
@@ -93,6 +100,8 @@ async function leggiCatalogo(): Promise<CatalogoGrezzo> {
 
 /** Le finestre dell'avvio, una alla volta: aggiornamento, benvenuto o novità, proposte. */
 async function finestreAvvio(aggiornamento: Promise<void>): Promise<void> {
+  // muro acceso e account non approvato: solo la schermata per chiedere l'accesso, niente altre finestre
+  if (await controllaMuro()) return;
   await aggiornamento;
   if (stato.update) await avvisoAggiornamento();
   if (!meta.benvenuto && !possedute.size) {
@@ -159,7 +168,7 @@ async function avvia(): Promise<void> {
       ridisegna();
       aggiornaContatori();
     });
-    void avviaSincronizzazione();
+    void avviaSincronizzazione().then(() => preparaAmministratore().catch(() => undefined));
     if (nativo()) {
       if (prefs.avvisi) avvisiAggiornamenti(true, false);
       confermaAlTelefono();
@@ -172,6 +181,12 @@ async function avvia(): Promise<void> {
           if (d.azione) dopoIntro(() => setTimeout(() => void azioneNotifica(d.azione, true), 600));
         })
         .catch(() => undefined);
+      void Nativo.addListener('accesso', d => {
+        // con l'app aperta: a Valerio una richiesta nuova, a chi aspetta l'approvazione (il muro si toglie da solo)
+        if (d.tipo === 'accesso')
+          avviso('Nuova richiesta di accesso a Eurodex: aprila da Impostazioni → Accesso', 7000);
+        else void aggiornaMuro();
+      });
       void Nativo.addListener('sincronizza', d => {
         if (!stessoDispositivo(d.did))
           avviso(d.testo ? `Da ${d.nome ?? ''}: ${d.testo}` : 'Collezione aggiornata da un altro dispositivo', 7000);

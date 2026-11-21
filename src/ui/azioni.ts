@@ -37,6 +37,8 @@ import { apriAggiornamento, controllaAggiornamento, installaAggiornamento } from
 import { Nativo, annullato, messaggio, nativo } from '../nativo/plugin';
 import { azioneAccedi, azioneEsci, azioneRinomina, azioneSincronizzaOra } from '../sync/interfaccia';
 import { annunciaOra, sincronizzazioneAttiva } from '../sync/sincronizzazione';
+import { muroAccedi, muroAperto, muroChiedi, muroEsci } from '../sync/muro';
+import { apriGestioneAccessi, azioneChiediAccesso, cambiaMuro, decidiAccesso } from '../viste/accesso';
 import { apriImpostazioni } from '../viste/impostazioni';
 import { apriNovita, avvisiAggiornamenti } from '../viste/finestre';
 import { mancantiFiltrate, testoMancanti } from '../viste/mancanti';
@@ -65,6 +67,8 @@ export function tornaIndietro(): boolean {
     chiudiDialogo();
     return true;
   }
+  // davanti al muro non c'è niente dietro cui tornare: indietro chiude l'app
+  if (muroAperto()) return false;
   if (zoomAperto()) {
     chiudiZoom();
     return true;
@@ -490,6 +494,30 @@ async function azione(nome: string, d: Dati): Promise<void> {
     case 'syncscollega':
       await azioneEsci();
       break;
+    case 'accchiedi':
+      await azioneChiediAccesso();
+      break;
+    case 'accgestisci':
+      await apriGestioneAccessi();
+      break;
+    case 'accok':
+      await decidiAccesso(d.v, 'approvato');
+      break;
+    case 'accno':
+      await decidiAccesso(d.v, 'rifiutato');
+      break;
+    case 'accvia':
+      await decidiAccesso(d.v, 'revocato');
+      break;
+    case 'muroaccedi':
+      await inCorso('[data-act="muroaccedi"]', null, () => muroAccedi());
+      break;
+    case 'murochiedi':
+      await inCorso('[data-act="murochiedi"]', 'Invio…', () => muroChiedi());
+      break;
+    case 'muroesci':
+      await muroEsci();
+      break;
     case 'sfondo':
       cambiaSfondo(d.v === 'colore' || d.v === 'foto' ? d.v : 'predefinito');
       break;
@@ -606,6 +634,11 @@ function alCambio(e: Event): void {
     if (k === 'cc' && stato.qc.y && !pezzi.some(p => p.t.cc === domanda.value && p.y === Number(stato.qc.y)))
       stato.qc.y = '';
     ridisegna();
+    return;
+  }
+  const muro = t.closest<HTMLInputElement>('[data-muro]');
+  if (muro) {
+    void cambiaMuro(muro);
     return;
   }
   const pref = t.closest<HTMLInputElement>('[data-pref]');

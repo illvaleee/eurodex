@@ -96,6 +96,20 @@ export async function richieste(): Promise<Richiesta[]> {
   return s.docs.map(d => richiestaDa(d.id, d.data()));
 }
 
+/** Le richieste che cambiano mentre la sezione di Valerio è aperta (una richiesta nuova compare da sola). */
+export function seguiRichieste(quandoCambiano: (l: Richiesta[]) => void, errore: (e: unknown) => void): Unsubscribe {
+  return onSnapshot(
+    query(collection(firebase().db, 'accessi'), orderBy('richiesta', 'desc')),
+    s => quandoCambiano(s.docs.map(d => richiestaDa(d.id, d.data()))),
+    errore,
+  );
+}
+
+/** L'interruttore del muro: solo Valerio lo può cambiare (le regole rifiutano tutti gli altri). */
+export async function impostaObbligo(obbligatorio: boolean): Promise<void> {
+  await setDoc(doc(firebase().db, 'config', 'accesso'), { obbligatorio, cambiato: serverTimestamp() });
+}
+
 /** La decisione di Valerio: accetta, rifiuta, toglie l'accesso o ci ripensa (con una sua nota, se vuole). */
 export async function decidi(uid: string, stato: Decisione, nota?: string): Promise<void> {
   const campi: Record<string, unknown> = { stato, decisione: serverTimestamp() };
