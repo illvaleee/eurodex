@@ -1,7 +1,7 @@
 # Progetto: accesso a Eurodex solo su approvazione
 
-Stato: **bozza, rivista da Claude 2 e Claude 3 il 21/11** (le decisioni sono in §9; aspetta la risposta di Valerio
-su A/B, §9.1). Niente codice finché Claude 2 e Claude 3 non l'hanno rivisto e
+Stato: **bozza, rivista da Claude 2 e Claude 3 il 21/11** (le decisioni sono in §9). Valerio ha scelto **A**
+(§9.1): si proteggono i servizi. Niente codice finché Claude 2 e Claude 3 non l'hanno rivisto e
 Valerio non l'ha approvato.
 
 ## 1. Lo scopo (parole di Valerio, 21/11)
@@ -218,6 +218,9 @@ diretta, la revoca) e sul telefono vero di Valerio, con il suo account. → **Do
 - I contenuti già dentro un APK installato (catalogo e foto della versione installata) restano lì; quelli nuovi non
   arrivano.
 - Chi è approvato può far vedere l'app a qualcun altro sul suo telefono: questo è normale.
+- Restano **pubblici, per scelta di Valerio (A, §9.1)**: le release con l'APK firmato, gli artifact `apk-*`, `www/data`
+  (catalogo, schede e foto) e i rami delle prove con le schermate. Chi li prende ha app e contenuti, ma l'app senza
+  approvazione non usa i servizi: sincronizzazione, avvisi, aggiornamenti e contenuti nuovi dall'app.
 
 ## 8. Lavori, in ordine
 
@@ -234,7 +237,10 @@ Ogni passo ha le sue prove ed è rivisto da tutti e tre prima di andare su main.
 
 Questi punti hanno la precedenza su quello che c'è scritto sopra, dove sono in contrasto.
 
-### 9.1 Servizi o anche contenuti (da decidere con Valerio)
+### 9.1 Servizi o anche contenuti: deciso A
+
+**Valerio ha scelto A** (21/11, alle 09:36, nella chat di Claude 2: "Preferisco A"). Si proteggono i servizi; che app
+e contenuti si trovino su GitHub va bene, ed è scritto in §7. Sotto, la domanda com'era stata posta.
 
 Il progetto, così com'è, protegge i **servizi**. Con eurodex pubblico, alcune cose restano scaricabili da chiunque abbia
 un account GitHub:
@@ -317,13 +323,15 @@ Accesso solo con Google anche nelle regole: `conGoogle()` in `create`, in `appro
    Storage per quei flussi, raggiungibili dal telefono simulato a `10.0.2.2` (strada C, con la stessa proprietà),
    oppure quella parte si prova sul telefono vero. Va scelto prima di scrivere l'app.
 
-### 9.8 Passo 5, reso esplicito (dipende da §9.1)
+### 9.8 Passo 5, reso esplicito (con A, §9.1)
 
-- togliere `dati/` dalla pagina pubblica;
-- fermare `gh release create`, oppure fare le release come bozze;
-- `controllo` legge la versione pubblicata da Storage invece che dalla pagina pubblica.
+- **togliere `dati/` dalla pagina pubblica**, o almeno smettere di aggiornarla. Non è per nascondere i contenuti, che
+  restano in `www/data`: è che le app vecchie, non approvate, li scaricano da lì da sole, e questo è un servizio;
+- `controllo` legge la versione pubblicata da Storage invece che dalla pagina pubblica;
+- `gh release create` **resta** com'è: con A le release pubbliche vanno bene.
 
 ### 9.9 Gli account che reggono tutto
 
 Tutto si regge sull'account Google di Valerio (`admin()`) e su quello GitHub, dove lui è il revisore di
-`pubblicazione`. Su tutti e due serve la **verifica in due passaggi**: Claude 3 l'ha chiesto a Valerio.
+`pubblicazione`. Su tutti e due serve la **verifica in due passaggi**: Claude 3 l'ha chiesto a Valerio, che ha
+risposto di averla ("sì, ce l'ho", 21/11). Claude 3 gli ha chiesto di avvisare se manca su uno dei due.
