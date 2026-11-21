@@ -224,6 +224,23 @@ async def main():
         await pg.wait_for_timeout(3600)
         ok(await pg.evaluate(NASCOSTI) == [], f'messaggio sparito: TalkBack non lo legge più ({await pg.evaluate(NASCOSTI)})')
 
+        # ---------- proposta di accedere con Google: con la finestra scorsa fino in fondo, nessun testo è coperto ----------
+        # (i pulsanti stanno fermi in fondo alle finestre lunghe: quello che viene dopo di loro finiva sotto, e del
+        # suggerimento finale si vedeva solo l'ultima parola)
+        for w, h in ((360, 640), (412, 915)):
+            await pg.set_viewport_size({'width': w, 'height': h}); await pg.wait_for_timeout(300)
+            await pg.evaluate("void __eurodex.propostaSincronizzazione(false)"); await pg.wait_for_timeout(800)
+            coperti = await pg.evaluate("""() => { const f = document.querySelector('.nvsheet'); if (!f) return ['finestra non aperta'];
+                for (const e of [f, ...f.querySelectorAll('*')]) if (e.scrollHeight > e.clientHeight + 2) e.scrollTop = e.scrollHeight;
+                return [...f.querySelectorAll('h2, .muted, button')].filter(e => e.getClientRects().length).filter(e => {
+                  const r = e.getBoundingClientRect(); const x = r.left + r.width / 2;
+                  return [r.top + 4, r.top + r.height / 2, r.bottom - 4].some(y => { if (y < 0 || y > innerHeight) return false;
+                    const sopra = document.elementFromPoint(x, y); return !(sopra && (sopra === e || e.contains(sopra))); });
+                }).map(e => e.textContent.trim().slice(0, 40)); }""")
+            ok(not coperti, f'proposta di accedere con Google ({w}×{h}): nessun testo coperto dai pulsanti {coperti[:3]}')
+            await pg.evaluate('__eurodex.chiudiFoglio()'); await pg.wait_for_timeout(400)
+        await pg.set_viewport_size({'width': 412, 'height': 915}); await pg.wait_for_timeout(300)
+
         # ---------- impaginazione: niente che esce dallo schermo, in chiaro e in scuro ----------
         for sc in ('light', 'dark'):
             for w, h in ((360, 740), (412, 915), (800, 1280), (1100, 700)):

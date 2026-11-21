@@ -20,6 +20,10 @@ const indirizzoApk = (): string =>
   RAW_DOWNLOAD +
   (stato.update?.apk && /^[\w.-]+\.apk$/.test(stato.update.apk) ? stato.update.apk : 'CollezioneEuro.apk');
 
+/** La risposta a un controllo chiesto a mano resta un po' più dei 3 secondi soliti: è l'unico segno che il controllo
+ * è stato fatto, e chi tocca il pulsante può guardare altrove per un attimo. */
+const DURATA_RISPOSTA = 4500;
+
 export async function controllaAggiornamento(
   manuale: boolean,
   attesaMax?: number,
@@ -40,10 +44,10 @@ export async function controllaAggiornamento(
       else if (stato.tab === 'coll' && !stato.stack.length) ridisegna();
     } else {
       stato.update = null;
-      if (manuale) avviso(giaAggiornata);
+      if (manuale) avviso(giaAggiornata, DURATA_RISPOSTA);
     }
   } catch {
-    if (manuale) avviso('Controllo non riuscito: sei connesso a internet?');
+    if (manuale) avviso('Controllo non riuscito: sei connesso a internet?', DURATA_RISPOSTA);
   }
 }
 

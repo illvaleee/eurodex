@@ -660,7 +660,33 @@ def nodi(*testi):
 pos = nodi('Controlla aggiornamenti', 'Novità delle versioni', 'Storico delle modifiche')
 note(f'  posizioni lette: {pos}')
 shot('prima_del_tocco_aggiornamenti')
-if tap('Controlla aggiornamenti', exact=True, wait=0.6) and visible('Novità delle versioni') and not visible('Controlla aggiornamenti'):
+def risposta_al_controllo():
+    """Una persona tocca e guarda subito lo schermo: la risposta ("Hai già l'ultima versione ✓") resta pochi secondi,
+    e una lettura dello schermo dura qualche secondo. Quindi niente letture separate prima: a ogni lettura si
+    controlla tutto insieme (attesa, risposta, e se per sbaglio si è aperta la finestra delle novità)."""
+    ok, attesa, novita, visti = False, False, False, set()
+    fine = time.time() + 30
+    while time.time() < fine:
+        tutto = testi_schermo()
+        attesa = attesa or 'controllo in corso' in tutto
+        for t in ('catalogo aggiornato', 'controllo non riuscito', 'serve la versione nuova', 'si controllano nell'):
+            if t in tutto:
+                visti.add(t)
+        if 'ultima versione' in tutto or 'nuova versione' in tutto:
+            ok = True
+            break
+        if 'novità delle versioni' in tutto and 'controlla aggiornamenti' not in tutto and 'controllo in corso' not in tutto:
+            novita = True
+            break
+        if 'controllo non riuscito' in visti or 'si controllano nell' in visti:
+            break
+    return ok, attesa, novita, visti
+
+
+ok, attesa_vista, novita_aperta, visti = False, False, False, set()
+if tap('Controlla aggiornamenti', exact=True, wait=0):
+    ok, attesa_vista, novita_aperta, visti = risposta_al_controllo()
+if novita_aperta:
     # il tocco è finito sul pulsante sotto: si ripete spostandosi in su della distanza fra i due pulsanti
     note('  (il tocco è finito su "Novità delle versioni": riprovo un pulsante più in alto)')
     back(); tap('Impostazioni', wait=2.5)
@@ -670,28 +696,13 @@ if tap('Controlla aggiornamenti', exact=True, wait=0.6) and visible('Novità del
     note(f'  posizioni lette (2): {pos}')
     if len(pos) == 2:
         (x1, y1), _ = pos['Controlla aggiornamenti']; (_, y2), _ = pos['Novità delle versioni']
-        adb(f'shell input tap {x1} {y1 - (y2 - y1)}'); time.sleep(0.6)
-if True:
-    # una persona aspetta la risposta (il controllo passa dalla rete: qualche secondo), al massimo 20 secondi
-    ok = False
-    attesa_vista = visible('Controllo in corso')
-    visti = set()
-    fine = time.time() + 30
-    while time.time() < fine:
-        tutto = testi_schermo()
-        for t in ('catalogo aggiornato', 'controllo non riuscito', 'serve la versione nuova', 'controllo in corso'):
-            if t in tutto:
-                visti.add(t)
-        if 'ultima versione' in tutto or 'nuova versione' in tutto:
-            ok = True
-            break
-        if 'controllo non riuscito' in visti:
-            break
-    if visti:
-        note(f'  (messaggi visti durante il controllo: {sorted(visti)})')
-    shot('aggiornamenti')
-    note(f'  (durante il controllo il pulsante mostra "Controllo in corso…": {"sì" if attesa_vista else "non visto (risposta immediata?)"})')
-    check(ok, 'il controllo aggiornamenti risponde (legge la versione pubblicata)')
+        adb(f'shell input tap {x1} {y1 - (y2 - y1)}')
+        ok, attesa_vista, novita_aperta, visti = risposta_al_controllo()
+if visti:
+    note(f'  (messaggi visti durante il controllo: {sorted(visti)})')
+shot('aggiornamenti')
+note(f'  (durante il controllo il pulsante mostra "Controllo in corso…": {"sì" if attesa_vista else "non visto (risposta immediata?)"})')
+check(ok, 'il controllo aggiornamenti risponde (legge la versione pubblicata)')
 shot('impostazioni_3')
 
 # 6b. catalogo in PDF: il file si crea e si apre la condivisione di Android (salva su Drive, manda su WhatsApp…)
@@ -787,6 +798,9 @@ note('disinstallazione: ' + adb(f'uninstall {PKG}'))
 note('reinstallazione: ' + adb(f'install {APK}', timeout=400))
 launch(15)
 shot('dopo_reinstallazione')
+# il telefono ripristinato è un dispositivo nuovo (l'accesso non si ripristina): con la collezione tornata compare
+# una volta la proposta di accedere con Google. Una persona tocca "Non ora" e va avanti: la prova fa lo stesso
+chiudi_fogli()
 tap('Mancanti', exact=True, required=False)
 MISS_AFTER = number_before('mancanti')
 shot('mancanti_dopo_reinstallazione')

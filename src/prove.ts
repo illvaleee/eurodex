@@ -12,6 +12,7 @@ import { stato } from './ui/stato-ui';
 import { mancantiFiltrate } from './viste/mancanti';
 import { apriImpostazioni } from './viste/impostazioni';
 import { apriScheda } from './viste/scheda-moneta';
+import { propostaSincronizzazione } from './viste/finestre';
 
 declare global {
   interface Window {
@@ -62,6 +63,7 @@ export function esponiPerLeProve(): void {
     vai,
     apriScheda,
     apriImpostazioni,
+    propostaSincronizzazione,
     chiudiFoglio,
     mancantiFiltrate,
     applicaSfondo,

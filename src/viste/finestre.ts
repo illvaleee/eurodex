@@ -256,8 +256,8 @@ export function propostaSincronizzazione(codiceSostituito: boolean): Promise<voi
       <div class="nvbtn">
         <button class="btn gbtn" data-act="syncaccedi">${ICONA_GOOGLE} Accedi con Google</button
         ><button class="btn sec2" data-act="close">Non ora</button>
-      </div>
-      <div class="muted small center">Puoi farlo quando vuoi da Impostazioni → Salvataggio e sincronizzazione.</div>`,
+        <div class="muted small center">Puoi farlo quando vuoi da Impostazioni → Salvataggio e sincronizzazione.</div>
+      </div>`,
     'nvsheet',
   );
 }
