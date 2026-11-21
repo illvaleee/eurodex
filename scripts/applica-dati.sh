@@ -28,7 +28,9 @@ import sys
 da, a = sys.argv[1:3]
 uscita = subprocess.run(['git', 'diff', '--raw', '--no-renames', '-z', da, a], capture_output=True, check=True).stdout
 pezzi = uscita.split(b'\0')
-N = rb'[^/.\0][^/\0]*'   # un pezzo del percorso: niente vuoti, niente nomi che cominciano con un punto
+# un pezzo del percorso: lettere, cifre e _ all'inizio, poi anche . e - (niente vuoti, niente nomi che cominciano con un
+# punto, niente spazi, a capo, virgolette o caratteri Unicode strani: i 14174 percorsi dei dati di oggi ci stanno tutti)
+N = rb'[A-Za-z0-9_][A-Za-z0-9._-]*'
 PERMESSI = re.compile(
     rb'scripts/cache/' + N + rb'\.json'
     rb'|scripts/ecb-cache/(?:' + N + rb'/)?' + N + rb'\.(?:html|json|jpg|jpeg|png|gif|webp)'

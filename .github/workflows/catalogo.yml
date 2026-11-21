@@ -190,13 +190,17 @@ jobs:
           [[ "$REV" =~ ^[0-9]{1,9}$ ]] || { echo "::error title=Dati::rev non valido in www/data/indice.json"; exit 1; }
           # anche la nota (il testo che arriva sui telefoni) e lo schema vengono dai dati: solo un testo breve e un numero
           python3 - <<'PY'
-          import json, sys, unicodedata
+          import json, re, sys, unicodedata
           j = json.load(open('www/data/indice.json'))
           nota, schema = j.get('note', ''), j.get('schema', 1)
           # niente link, niente caratteri di controllo o invisibili (per esempio quelli che girano il verso del testo)
           testo_ok = isinstance(nota, str) and len(nota) <= 300 and '://' not in nota and not any(unicodedata.category(c) in ('Cc', 'Cf') for c in nota)
-          if not (testo_ok and type(schema) is int and 0 < schema < 1000):
-              print('::error title=Dati::nota o schema non validi in www/data/indice.json')
+          # i nomi delle foto diventano percorsi di file sui telefoni (R20): solo img/<esadecimale>.webp
+          img = j.get('img', [])
+          img_ok = isinstance(img, list) and len(img) <= 20000 and all(
+              isinstance(x, str) and re.fullmatch(r'img/[0-9a-f]{1,64}\.webp', x) for x in img)
+          if not (testo_ok and type(schema) is int and 0 < schema < 1000 and img_ok):
+              print('::error title=Dati::nota, schema o nomi delle foto non validi in www/data/indice.json')
               sys.exit(1)
           PY
           for _ in 1 2 3; do

@@ -89,6 +89,16 @@ esito "$(cat "$T"/codice.txt)" 1 "una cartella nuova dentro www/data"
 buono8() { mkdir -p scripts/ecb-cache/it; echo '<p>' > scripts/ecb-cache/it/pagina.html; echo j > scripts/ecb-cache/it/foto.jpg; echo '{}' > scripts/cache/b.json; }; nuovo_origin; scarica buono8; pubblica
 esito "$(cat "$T"/codice.txt)" 0 "pagine e foto della BCE e risposte Numista accettate"
 
+echo "11d) nomi con spazi, a capo, virgolette o caratteri Unicode: rifiutati"; nuovo_origin
+cattivo9() { dati_ok; echo '{}' > "scripts/cache/a b.json"; }; scarica cattivo9; pubblica
+esito "$(cat "$T"/codice.txt)" 1 "uno spazio nel nome"
+cattivo10() { dati_ok; echo x > "www/data/img/$(printf 'a\nb').webp"; }; nuovo_origin; scarica cattivo10; pubblica
+esito "$(cat "$T"/codice.txt)" 1 "un a capo nel nome"
+cattivo11() { dati_ok; echo '{}' > "www/data/caté.json"; }; nuovo_origin; scarica cattivo11; pubblica
+esito "$(cat "$T"/codice.txt)" 1 "una lettera accentata nel nome"
+buono12() { echo '{}' > www/data/details-12.json; echo x > www/data/img/00518fa9b0c99f.webp; echo '{}' > scripts/cache/A_b-1.json; }; nuovo_origin; scarica buono12; pubblica
+esito "$(cat "$T"/codice.txt)" 0 "i nomi veri dei dati (trattini, cifre, maiuscole, _) passano"
+
 echo "11c) su main un file dei dati spostato fuori nel frattempo: il risultato finale si ricontrolla"; nuovo_origin
 sposta() { git mv www/data/catalog.json src/catalog.json; }; scarica_cat() { echo '{"types":[1]}' > www/data/catalog.json; }
 scarica scarica_cat; muovi_main sposta; pubblica
