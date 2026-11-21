@@ -1025,13 +1025,41 @@ def numeri(st):
     return [n.testo for n in st.nodi if n.pkg == PKG and re.search(r'\d', n.testo)]
 
 
+def persistenza_dalla_home(perche):
+    """Ripiego quando non si riesce a tornare alla schermata di fine esplorazione (per esempio un filtro che l'app
+    ricorda e che, rifacendo il percorso, si spegne): il controllo si fa sulla schermata iniziale, che si raggiunge
+    sempre. I totali della collezione, chiusa e riaperta l'app, devono essere uguali."""
+    log(f'  ({perche}: controllo la schermata iniziale)')
+    avvia(freddo=True)
+    st = osserva()
+    if st.pkg != PKG:
+        log('  (l\'app non è in primo piano nemmeno da capo: salto)')
+        return
+    st = in_cima(st)
+    vivo = numeri(st)
+    if not vivo:
+        log('  (nessun numero nella schermata iniziale: salto)')
+        return
+    adb('shell input keyevent 3')
+    time.sleep(1)
+    adb(f'shell am kill {PKG}')
+    time.sleep(1)
+    avvia()
+    dopo = numeri(in_cima(osserva()))
+    if dopo != vivo:
+        diff = [x for x in dopo if x not in vivo][:3] or [x for x in vivo if x not in dopo][:3]
+        problema('errore', 'dati', 'schermata iniziale', f'dopo aver chiuso e riaperto l\'app i numeri cambiano: {diff}')
+    else:
+        log(f'  schermata iniziale: tutto come prima ({len(vivo)} numeri controllati)')
+
+
 def prova_persistenza():
     """Quello che si è fatto deve restare dopo aver chiuso l'app (anche se è Android a chiuderla in background)."""
     log('— Dati dopo chiusura e riapertura —')
     st = osserva()
     k = riconosci(st)
     if not k or st.pkg != PKG:
-        log('  (alla fine dell\'esplorazione non ero in una schermata nota: salto)')
+        persistenza_dalla_home('alla fine dell\'esplorazione non ero in una schermata nota')
         return
     st = in_cima(st)
     vivo = numeri(st)
@@ -1045,7 +1073,7 @@ def prova_persistenza():
     time.sleep(1)
     rifatto = rifai_percorso(SCHERMATE[k]['passi'])
     if rifatto is None:
-        log('  (non riesco a tornare alla stessa schermata: salto)')
+        persistenza_dalla_home('non riesco a tornare alla stessa schermata')
         return
     dopo = numeri(in_cima(rifatto))
     if dopo != vivo:

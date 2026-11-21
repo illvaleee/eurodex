@@ -123,5 +123,28 @@ E.osserva = osserva_con_ultima_coperta
 E.esplora_pagina(st, 'Mancanti')
 ok(any('resta coperto' in p['cosa'] for p in E.PROBLEMI), 'in fondo vero l\'ultima riga coperta dalla barra: segnalata')
 
+# 6 e 7. dati dopo chiusura e riapertura, sulla schermata iniziale quando non si torna a quella di prima
+def finta_riapertura(prima, dopo):
+    letture = iter([prima, dopo])
+    E.avvia = lambda *a, **k: None
+    E.adb = lambda *a, **k: ''
+    E.osserva = lambda: E.Stato(nodi=[], pkg=PKG, chiave='home', firma='', azioni=[], nome='Eurodex')
+    E.in_cima = lambda st=None: st
+    E.numeri = lambda st: next(letture)
+    E.time.sleep = lambda s: None
+
+
+pulisci()
+finta_riapertura(['1575', '4818', '33%'], ['1575', '4818', '33%'])
+E.persistenza_dalla_home('non riesco a tornare alla stessa schermata')
+diario = open(os.path.join(sys.argv[2], 'diario.txt'), encoding='utf-8').read()
+ok(not E.PROBLEMI and 'schermata iniziale: tutto come prima' in diario,
+   'riaperta l\'app, la schermata iniziale è uguale: il controllo c\'è e passa (non più "salto")')
+
+pulisci()
+finta_riapertura(['1575', '4818', '33%'], ['1574', '4818', '33%'])
+E.persistenza_dalla_home('non riesco a tornare alla stessa schermata')
+ok(any(p['tipo'] == 'dati' for p in E.PROBLEMI), 'riaperta l\'app, un totale cambia: segnalato come errore di dati')
+
 print('RISULTATO:', 'TUTTO OK' if not fallite else f'{len(fallite)} PROBLEMI')
 raise SystemExit(1 if fallite else 0)
