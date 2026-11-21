@@ -16,7 +16,7 @@ service cloud.firestore {
     // Valerio, l'unico amministratore. L'UID identifica, non autorizza: non è un segreto.
     function admin() {
       return request.auth != null && request.auth.uid == 'UID_DI_VALERIO'
-        && request.auth.token.email_verified == true;
+        && request.auth.token.email_verified == true && conGoogle();
     }
 
     // false finché non si fa il passo 4 del passaggio: fino ad allora tutto funziona come prima

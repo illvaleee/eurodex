@@ -147,6 +147,8 @@ t_val_nv = gettone_senza_firma(VAL, 'valerio@example.com', verificata=False)
 ok(http('GET', f'{FS}/accessi', chi=gettone_senza_firma(VAL, 'valerio@example.com', True))[0] == 200,
    '(controllo della prova: lo stesso gettone con l\'email verificata è amministratore)')
 ok(http('GET', f'{FS}/accessi', chi=t_val_nv)[0] == 403, 'senza email verificata nemmeno l\'account di Valerio è amministratore')
+ok(http('GET', f'{FS}/accessi', chi=gettone_senza_firma(VAL, 'valerio@example.com', True, metodo='password'))[0] == 403,
+   'senza Google nemmeno l\'account di Valerio è amministratore')
 st, j = http('GET', f'{FS}/accessi', chi=t_val)
 ok(st == 200 and len(j.get('documents', [])) == 2, f'Valerio vede le richieste ({len(j.get("documents", []))})')
 ok(scrivi(t_val, f'accessi/{MAR}', {'stato': 'approvato'}, esiste=True, maschera=['stato']) == 403,
