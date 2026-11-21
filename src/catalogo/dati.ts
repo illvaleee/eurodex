@@ -313,6 +313,9 @@ export function caricaSchede(): Promise<Schede> {
 
 /** Indirizzo di una foto del catalogo: scaricata con un aggiornamento dei dati, oppure dentro l'APK. */
 export function indirizzoFoto(nome: string): string {
+  // solo i nomi previsti (img/<esadecimale>.webp): un indirizzo esterno messo nel catalogo farebbe sapere a chi lo
+  // controlla quando e da dove si apre l'app (revisione di Claude 3 su #10); per gli altri nomi, niente foto
+  if (!nomeFotoValido(nome)) return '';
   if (dati.base && dati.img.has(nome)) return dati.base + nome;
-  return /^https?:|^data:/.test(nome) ? nome : `data/${nome}`;
+  return `data/${nome}`;
 }
