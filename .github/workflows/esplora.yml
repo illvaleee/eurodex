@@ -14,7 +14,7 @@ on:
         default: '30'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   esplora:
@@ -47,7 +47,7 @@ jobs:
         env:
           MINUTI: ${{ inputs.minuti || '30' }}
         run: |
-          pip install --quiet pillow
+          pip install --quiet --require-hashes -r scripts/requisiti-prove.txt
           [[ "$MINUTI" =~ ^[0-9]{1,3}$ ]] || { echo "::error::minuti non validi: deve essere un numero"; exit 1; }
           echo "MINUTI=$MINUTI" >> "$GITHUB_ENV"
 
@@ -64,13 +64,51 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: adb install -r app.apk && python3 prove/esploratore.py it.collezione.euro esplorazione "$MINUTI"
 
-      - name: 'Risultati sul ramo esplorazione (resoconto, diario e schermate)'
+      - name: Risultati come artifact (li mette sul ramo esplorazione un job a parte, con il permesso di scrittura)
         if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: risultati-esplorazione
+          path: esplorazione
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # resoconto, diario e schermate sul ramo esplorazione
+  # (qui non gira codice di terzi: niente action dell'emulatore, niente pacchetti, nemmeno il checkout)
+  salva:
+    needs: [esplora]
+    if: ${{ !cancelled() && needs.esplora.result != 'skipped' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: risultati-esplorazione
+          path: risultati
+      - name: Risultati sui rami delle prove
         env:
           GH_TOKEN: ${{ github.token }}
+          N: ${{ github.run_number }}
           VERSIONE: ${{ inputs.versione || 'ultima' }}
         run: |
-          mkdir -p esplorazione && cd esplorazione
-          git init -q -b esplorazione && git add -A
-          git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Esplorazione $VERSIONE" || true
-          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" esplorazione
+          errori=0
+          # l'artifact viene da un job dove gira codice di terzi: niente di quello che contiene deve essere eseguito.
+          # La cartella di git sta fuori dall'artifact (una .git dentro l'artifact git non la aggiunge mai), con hook
+          # e fsmonitor spenti, e un artifact con collegamenti simbolici si scarta.
+          salva() { # artifact, ramo, messaggio
+            local dir="risultati/$1" gd="$RUNNER_TEMP/git-$2"
+            [ -d "$dir" ] || { echo "Niente risultati per il ramo $2"; return 0; }
+            [ -z "$(find "$dir" -type l -print -quit)" ] || { echo "::error::collegamenti simbolici nell'artifact $1: non lo salvo"; errori=1; return 0; }
+            # una cartella .git dentro l'artifact (anche in una sottocartella) non deve diventare un rimando a un altro
+            # repository né far fallire git add: si toglie, tanto i risultati sono solo file
+            find "$dir" -name .git -prune -exec rm -rf {} +
+            g() { git --git-dir="$gd" --work-tree="$dir" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }
+            { g init -q -b "$2" && g add -A &&
+              { g -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "$3" || true; } &&
+              g push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$2"; } || errori=1
+          }
+          salva risultati-esplorazione esplorazione "Esplorazione $VERSIONE"
+          exit $errori

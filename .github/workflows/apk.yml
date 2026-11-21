@@ -45,12 +45,11 @@ jobs:
     outputs:
       serve: ${{ steps.c.outputs.serve }}
       impronta: ${{ steps.c.outputs.impronta }}
-      sha: ${{ steps.c.outputs.sha }}
       n: ${{ steps.c.outputs.n }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.sha }}
       - id: c
         name: C'è qualcosa di nuovo? E che numero di versione avrà
         run: |
@@ -60,8 +59,11 @@ jobs:
           # numero della versione nuova: quello pubblicato + 1 (se nel frattempo si pubblica altro, il controllo del
           # versionCode in "firma-e-pubblica" ferma tutto)
           PUB=$(python3 -c "import json; print(json.load(open('pubblicata.json')).get('code',0))")
+          # il version.json pubblicato viene da fuori: prima dell'aritmetica di bash deve essere solo un numero
+          # (dentro $(( )) un valore come a[$(comando)] eseguirebbe il comando)
+          [[ "$PUB" =~ ^[0-9]{1,9}$ ]] || { echo "::error title=Versione::code non valido nel version.json pubblicato"; exit 1; }
           N=$(( PUB > 0 ? PUB + 1 : ${{ github.run_number }} ))
-          { echo "impronta=$H"; echo "sha=$(git rev-parse HEAD)"; echo "n=$N"; } >> "$GITHUB_OUTPUT"
+          { echo "impronta=$H"; echo "n=$N"; } >> "$GITHUB_OUTPUT"
           # avviato a mano si compila sempre; in automatico solo se app o catalogo sono cambiati
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$H" != "$OLD" ]; then echo "serve=true" >> "$GITHUB_OUTPUT"; else echo "serve=false" >> "$GITHUB_OUTPUT"; echo "Niente di nuovo: l'APK pubblicato è già aggiornato"; fi
 
@@ -73,13 +75,12 @@ jobs:
     if: ${{ needs.controllo.outputs.serve == 'true' && !inputs.senza_prove }}
     permissions:
       contents: read
-      actions: write
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.controllo.outputs.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -105,11 +106,6 @@ jobs:
           name: prove-browser
           path: prove-foto
           retention-days: 7
-      - name: Al primo errore si fermano anche le altre prove (si risparmiano minuti)
-        if: ${{ failure() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
 
   # controlli del codice, test e compilazione dell'APK (uguale su tutti i rami, senza nessun segreto)
   build:
@@ -117,13 +113,21 @@ jobs:
     if: ${{ needs.controllo.outputs.serve == 'true' }}
     permissions:
       contents: read
-      actions: write
+    # l'impronta dell'APK non firmato: gli output di un job li scrive solo quel job, quindi firma-e-pubblica può
+    # controllare che l'artifact che firma sia proprio questo (un artifact invece si può ricaricare da un altro job)
+    outputs:
+      apk: ${{ steps.apk.outputs.sha256 }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    env:
+      N: ${{ needs.controllo.outputs.n }}
     steps:
+      - name: Numero di versione da controllo (solo cifre)
+        run: '[[ "$N" =~ ^[0-9]{1,9}$ ]] || { echo "::error title=Versione::numero di versione non valido"; exit 1; }'
+
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.controllo.outputs.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - uses: actions/setup-node@v4
@@ -147,9 +151,9 @@ jobs:
 
       - name: Progetto Android
         run: |
-          printf '{"code":%s,"version":"1.0.%s"}\n' ${{ needs.controllo.outputs.n }} ${{ needs.controllo.outputs.n }} > www/version.json
+          printf '{"code":%s,"version":"1.0.%s"}\n' "$N" "$N" > www/version.json
           # le novità scritte per questa versione (senza numero) prendono il numero di questa versione
-          python3 scripts/numera-novita.py ${{ needs.controllo.outputs.n }}
+          python3 scripts/numera-novita.py "$N"
           # indice dei dati dentro l'APK (di solito c'è già, lo scrive "Scarica catalogo")
           [ -f www/data/indice.json ] || node scripts/indice-dati.mjs
           npx cap add android
@@ -174,7 +178,7 @@ jobs:
           cp native/google-services.json android/app/google-services.json
           sed -i 's#</application>#    <service android:name=".AvvisiPush" android:exported="false">\n            <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>\n        </service>\n    </application>#' android/app/src/main/AndroidManifest.xml
           grep -c "AvvisiPush" android/app/src/main/AndroidManifest.xml
-          sed -i "s/versionCode [0-9]*/versionCode ${{ needs.controllo.outputs.n }}/; s/versionName \"[^\"]*\"/versionName \"1.0.${{ needs.controllo.outputs.n }}\"/" android/app/build.gradle
+          sed -i "s/versionCode [0-9]*/versionCode $N/; s/versionName \"[^\"]*\"/versionName \"1.0.$N\"/" android/app/build.gradle
 
       - name: Compila
         run: cd android && ./gradlew assembleRelease --no-daemon
@@ -182,6 +186,7 @@ jobs:
       # la compilazione è uguale su tutti i rami e NON usa la chiave vera: l'APK non firmato va a "firma-e-pubblica"
       # (solo main, con l'approvazione di Vale), quello firmato con una chiave di prova serve per le prove
       - name: APK non firmato (per la pubblicazione) e firmato con una chiave di prova (per le prove)
+        id: apk
         run: |
           BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
           "$BT/zipalign" -p -f 4 android/app/build/outputs/apk/release/app-release-unsigned.apk non-firmato.apk
@@ -190,6 +195,7 @@ jobs:
           "$BT/apksigner" sign --ks "$RUNNER_TEMP/prova.jks" --ks-key-alias prova --ks-pass pass:provaprova --out CollezioneEuro.apk non-firmato.apk
           "$BT/apksigner" verify CollezioneEuro.apk
           ls -lh non-firmato.apk CollezioneEuro.apk
+          echo "sha256=$(sha256sum non-firmato.apk | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -199,24 +205,18 @@ jobs:
         with:
           name: apk-prova
           path: CollezioneEuro.apk
-      - name: Al primo errore si fermano anche le altre prove (si risparmiano minuti)
-        if: ${{ failure() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
 
   test:
     needs: [controllo, build]
     if: ${{ !inputs.senza_prove }}
     permissions:
-      contents: write
-      actions: write
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.controllo.outputs.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - uses: actions/download-artifact@v4
@@ -228,6 +228,9 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+
+      - name: Strumenti per le prove (versioni e impronte fisse)
+        run: pip install --quiet --require-hashes -r scripts/requisiti-prove.txt
 
       - name: Prova su un telefono Android simulato
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
@@ -240,22 +243,16 @@ jobs:
           ram-size: 4096M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: pip install -q pillow >/dev/null 2>&1; python3 scripts/test-emulator.py CollezioneEuro.apk prove-emu
+          script: python3 scripts/test-emulator.py CollezioneEuro.apk prove-emu
 
-      - name: Salva i risultati della prova
+      - name: Risultati come artifact (li mette sul ramo prove un job a parte, con il permesso di scrittura)
         if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p prove-emu && cd prove-emu
-          git init -q -b prove && git add -A
-          git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Prova APK ${{ github.run_number }}" || true
-          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" prove
-      - name: Al primo errore si fermano anche le altre prove (si risparmiano minuti)
-        if: ${{ failure() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: risultati-prove
+          path: prove-emu
+          if-no-files-found: ignore
+          retention-days: 14
 
   # l'esploratore prova l'APK nuovo come una persona che lo vede per la prima volta: scopre da solo schermate ed
   # elementi, tocca, scorre e scrive tutto, e controlla crash, blocchi, grafica, accessibilità e dati
@@ -263,14 +260,13 @@ jobs:
     needs: [controllo, build]
     if: ${{ !inputs.senza_prove }}
     permissions:
-      contents: write
-      actions: write
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.controllo.outputs.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
@@ -280,7 +276,8 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - run: pip install --quiet pillow
+      - name: Strumenti per le prove (versioni e impronte fisse)
+        run: pip install --quiet --require-hashes -r scripts/requisiti-prove.txt
       - name: Esplorazione
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
@@ -293,20 +290,14 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: adb install -r CollezioneEuro.apk && python3 prove/esploratore.py it.collezione.euro esplorazione 30
-      - name: 'Risultati sul ramo esplorazione'
+      - name: Risultati come artifact (li mette sul ramo esplorazione un job a parte, con il permesso di scrittura)
         if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p esplorazione && cd esplorazione
-          git init -q -b esplorazione && git add -A
-          git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Esplorazione APK ${{ github.run_number }}" || true
-          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" esplorazione
-      - name: Al primo errore si fermano anche le altre prove (si risparmiano minuti)
-        if: ${{ failure() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: risultati-esplorazione
+          path: esplorazione
+          if-no-files-found: ignore
+          retention-days: 14
 
   # prima di pubblicare: la versione nuova installata sopra quella già pubblicata (come un aggiornamento), con
   # monete segnate e una preferita: la collezione deve restare tutta
@@ -317,14 +308,13 @@ jobs:
     needs: [controllo, build]
     if: ${{ !inputs.senza_prove }}
     permissions:
-      contents: write
-      actions: write
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.controllo.outputs.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
@@ -352,6 +342,9 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      - name: Strumenti per le prove (versioni e impronte fisse)
+        if: ${{ steps.prec.outputs.c == 'si' }}
+        run: pip install --quiet --require-hashes -r scripts/requisiti-prove.txt
       - name: Versione nuova sopra quella pubblicata
         if: ${{ steps.prec.outputs.c == 'si' }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
@@ -364,21 +357,56 @@ jobs:
           ram-size: 4096M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: pip install -q pillow >/dev/null 2>&1; python3 scripts/test-emulator.py vecchia.apk prove-sopra sopra CollezioneEuro.apk
-      - name: Salva i risultati della prova
+          script: python3 scripts/test-emulator.py vecchia.apk prove-sopra sopra CollezioneEuro.apk
+      - name: Risultati come artifact (li mette sul ramo prove-sopra un job a parte, con il permesso di scrittura)
         if: ${{ always() && steps.prec.outputs.c == 'si' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: risultati-sopra
+          path: prove-sopra
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # i risultati di test, esplorazione e sopra sui rami prove, esplorazione e prove-sopra
+  # (qui non gira codice di terzi: niente action dell'emulatore, niente pacchetti, nemmeno il checkout)
+  salva-prove:
+    needs: [build, test, esplorazione, sopra]
+    if: ${{ !cancelled() && !inputs.senza_prove && needs.build.result == 'success' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: risultati-*
+          path: risultati
+      - name: Risultati sui rami delle prove
         env:
           GH_TOKEN: ${{ github.token }}
+          N: ${{ github.run_number }}
         run: |
-          mkdir -p prove-sopra && cd prove-sopra
-          git init -q -b prove-sopra && git add -A
-          git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Prova sopra la versione pubblicata ${{ github.run_number }}" || true
-          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" prove-sopra
-      - name: Al primo errore si fermano anche le altre prove (si risparmiano minuti)
-        if: ${{ failure() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
+          errori=0
+          # l'artifact viene da un job dove gira codice di terzi: niente di quello che contiene deve essere eseguito.
+          # La cartella di git sta fuori dall'artifact (una .git dentro l'artifact git non la aggiunge mai), con hook
+          # e fsmonitor spenti, e un artifact con collegamenti simbolici si scarta.
+          salva() { # artifact, ramo, messaggio
+            local dir="risultati/$1" gd="$RUNNER_TEMP/git-$2"
+            [ -d "$dir" ] || { echo "Niente risultati per il ramo $2"; return 0; }
+            [ -z "$(find "$dir" -type l -print -quit)" ] || { echo "::error::collegamenti simbolici nell'artifact $1: non lo salvo"; errori=1; return 0; }
+            # una cartella .git dentro l'artifact (anche in una sottocartella) non deve diventare un rimando a un altro
+            # repository né far fallire git add: si toglie, tanto i risultati sono solo file
+            find "$dir" -name .git -prune -exec rm -rf {} +
+            g() { git --git-dir="$gd" --work-tree="$dir" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }
+            { g init -q -b "$2" && g add -A &&
+              { g -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "$3" || true; } &&
+              g push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$2"; } || errori=1
+          }
+          salva risultati-prove prove "Prova APK $N"
+          salva risultati-esplorazione esplorazione "Esplorazione APK $N"
+          salva risultati-sopra prove-sopra "Prova sopra la versione pubblicata $N"
+          exit $errori
 
   # Firma con la chiave vera e pubblicazione: solo su main, solo se tutte le prove sono passate, e solo dopo che Vale
   # tocca "Approve" (environment "pubblicazione" con Vale come revisore): i segreti arrivano a questo job solo dopo
@@ -394,15 +422,31 @@ jobs:
     environment: pubblicazione
     permissions:
       contents: write
+    outputs:
+      version_json: ${{ steps.vj.outputs.sha256 }}
     runs-on: ubuntu-latest
+    env:
+      N: ${{ needs.controllo.outputs.n }}
+      IMPRONTA: ${{ needs.controllo.outputs.impronta }}
     steps:
+      - name: Numero di versione da controllo (solo cifre)
+        run: '[[ "$N" =~ ^[0-9]{1,9}$ ]] || { echo "::error title=Versione::numero di versione non valido"; exit 1; }'
+
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.controllo.outputs.sha }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - uses: actions/download-artifact@v4
         with:
           name: apk-non-firmato
+
+      - name: L'APK da firmare è proprio quello compilato da build
+        env:
+          ATTESA: ${{ needs.build.outputs.apk }}
+        run: |
+          [[ "$ATTESA" =~ ^[0-9a-f]{64}$ ]] || { echo "::error title=Firma::manca l'impronta dell'APK di build"; exit 1; }
+          echo "$ATTESA  non-firmato.apk" | sha256sum -c - || { echo "::error title=Firma::l'APK scaricato non è quello compilato da build: non lo firmo"; exit 1; }
 
       - name: Firma con la chiave vera
         env:
@@ -422,8 +466,8 @@ jobs:
         run: |
           BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
           V=$("$BT/aapt2" dump badging CollezioneEuro.apk | grep -o "versionCode='[0-9]*'" | grep -o '[0-9]*')
-          echo "versionCode $V, attesa ${{ needs.controllo.outputs.n }}"
-          [ "$V" = "${{ needs.controllo.outputs.n }}" ]
+          echo "versionCode $V, attesa $N"
+          [ "$V" = "$N" ]
 
       - name: La versione che hanno adesso sul telefono (per la prova dell'aggiornamento, dopo)
         run: curl -fsSL https://raw.githubusercontent.com/illvaleee/collezione-euro-download/main/CollezioneEuro.apk -o precedente.apk || true
@@ -438,8 +482,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          N=${{ needs.controllo.outputs.n }}
-          gh release create "v1.0.$N" CollezioneEuro.apk -R ${{ github.repository }} --target ${{ needs.controllo.outputs.sha }} \
+          gh release create "v1.0.$N" CollezioneEuro.apk -R ${{ github.repository }} --target "$GITHUB_SHA" \
             --title "Eurodex 1.0.$N" --notes "APK pronto da installare. Scarica CollezioneEuro.apk qui sotto (è Eurodex, il nome del file resta quello vecchio per gli aggiornamenti)."
 
       - name: Pubblica per l'aggiornamento dall'app
@@ -454,14 +497,13 @@ jobs:
           # scritta qui invece di fidarsi della prima risposta di ssh-keyscan
           mkdir -p ~/.ssh && echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' >> ~/.ssh/known_hosts
           export GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/segreti/deploy -o IdentitiesOnly=yes"
-          N=${{ needs.controllo.outputs.n }}
           rm -rf pub && mkdir pub && cp CollezioneEuro.apk pub/ && cp CollezioneEuro.apk pub/CollezioneEuro-1.0.$N.apk
           git clone -q --depth 1 git@github.com:illvaleee/collezione-euro-download.git /tmp/dl0 || true
           if [ -f /tmp/dl0/dati/indice.json ]; then cp -r /tmp/dl0/dati pub/dati; else mkdir -p pub/dati && cp www/data/catalog.json www/data/details.json www/data/indice.json pub/dati/ && cp -r www/data/img pub/dati/img; fi
           ls pub/dati | head
           cp CollezioneEuro.apk pub/Eurodex.apk
           curl -fsS https://raw.githubusercontent.com/illvaleee/collezione-euro-download/main/version.json -o prima.json || echo '{}' > prima.json
-          python3 - "$N" "$(stat -c %s CollezioneEuro.apk)" "${{ needs.controllo.outputs.impronta }}" > pub/version.json <<'PY'
+          python3 - "$N" "$(stat -c %s CollezioneEuro.apk)" "$IMPRONTA" > pub/version.json <<'PY'
           import json, sys, datetime
           n, size, h = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
           c = json.load(open('www/data/catalog.json'))
@@ -490,21 +532,72 @@ jobs:
           git push -f git@github.com:illvaleee/collezione-euro-download.git main
           rm -f "$RUNNER_TEMP/segreti/deploy"
 
+      - name: Impronta di version.json (la controlla il job della notifica)
+        id: vj
+        run: echo "sha256=$(sha256sum pub/version.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: version.json per il job della notifica
+        uses: actions/upload-artifact@v4
+        with:
+          name: version-json
+          path: pub/version.json
+          retention-days: 7
+
       - name: Segna nel repository il numero di versione delle novità
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git fetch -q origin main && git checkout -q -B main origin/main
-          python3 scripts/numera-novita.py ${{ needs.controllo.outputs.n }}
+          python3 scripts/numera-novita.py "$N"
           if ! git diff --quiet -- www/novita.json; then
-            git -c user.name=eurodex -c user.email=eurodex@users.noreply.github.com commit -qm "Novità: numero di versione 1.0.${{ needs.controllo.outputs.n }} [skip ci]" -- www/novita.json
-            for i in 1 2 3; do git push -q origin main && break; git pull -q --rebase origin main; done
+            git -c user.name=eurodex -c user.email=eurodex@users.noreply.github.com commit -qm "Novità: numero di versione 1.0.$N [skip ci]" -- www/novita.json
+            for i in 1 2 3; do
+              git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main && break
+              git pull -q --rebase origin main
+            done
           fi
+
+      - name: Via i file dei segreti
+        if: ${{ always() }}
+        run: rm -rf "$RUNNER_TEMP/segreti"
+
+  # la notifica sui telefoni in un job a parte: qui girano pacchetti Python (versioni e impronte fisse) con la chiave
+  # di Firebase, ma senza la chiave di firma e senza il permesso di scrittura. L'environment catalogo ha il Secret
+  # FIREBASE_INVIO_JSON e nessun revisore: l'approvazione di Vale c'è già stata in firma-e-pubblica.
+  notifica:
+    needs: [controllo, firma-e-pubblica]
+    if: ${{ needs.firma-e-pubblica.result == 'success' && github.repository == 'illvaleee/eurodex' && github.ref == 'refs/heads/main' }}
+    environment: catalogo
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: version-json
+          path: pub
+
+      - name: version.json è quello scritto da firma-e-pubblica
+        env:
+          ATTESA: ${{ needs.firma-e-pubblica.outputs.version_json }}
+        run: |
+          [[ "$ATTESA" =~ ^[0-9a-f]{64}$ ]] || { echo "::error title=Notifica::manca l'impronta di version.json"; exit 1; }
+          echo "$ATTESA  pub/version.json" | sha256sum -c -
+
+      # prima i pacchetti (versioni e impronte fisse), poi la chiave: pip non gira mai con la chiave su disco
+      - name: Strumenti per la notifica
+        run: pip install --quiet --require-hashes -r scripts/requisiti-google.txt
 
       - name: Notifica immediata sui telefoni (Firebase)
         env:
           FIREBASE_INVIO_JSON: ${{ secrets.FIREBASE_INVIO_JSON }}
         run: |
-          # prima i pacchetti (versioni e impronte fisse), poi la chiave: pip non gira mai con la chiave su disco
-          pip install --quiet --require-hashes -r scripts/requisiti-google.txt
           umask 077
           mkdir -p "$RUNNER_TEMP/segreti"
           printf '%s' "$FIREBASE_INVIO_JSON" > "$RUNNER_TEMP/segreti/firebase.json"
@@ -518,13 +611,18 @@ jobs:
     needs: [controllo, firma-e-pubblica]
     if: ${{ !inputs.senza_prove }}
     permissions:
-      contents: write
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 50
+    env:
+      N: ${{ needs.controllo.outputs.n }}
     steps:
+      - name: Numero di versione da controllo (solo cifre)
+        run: '[[ "$N" =~ ^[0-9]{1,9}$ ]] || { echo "::error title=Versione::numero di versione non valido"; exit 1; }'
+
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.controllo.outputs.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - uses: actions/download-artifact@v4
@@ -555,14 +653,52 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: python3 scripts/test-emulator.py vecchia.apk prove-agg aggiornamento ${{ needs.controllo.outputs.n }}
+          script: python3 scripts/test-emulator.py vecchia.apk prove-agg aggiornamento "$N"
 
-      - name: Salva i risultati della prova
+      - name: Risultati come artifact (li mette sul ramo prove-aggiornamento un job a parte, con il permesso di scrittura)
         if: ${{ always() && steps.prec.outputs.c == 'si' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: risultati-aggiornamento
+          path: prove-agg
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # i risultati della prova dell'aggiornamento sul ramo prove-aggiornamento
+  # (qui non gira codice di terzi: niente action dell'emulatore, niente pacchetti, nemmeno il checkout)
+  salva-aggiornamento:
+    needs: [aggiornamento]
+    if: ${{ !cancelled() && needs.aggiornamento.result != 'skipped' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: risultati-aggiornamento
+          path: risultati
+      - name: Risultati sui rami delle prove
         env:
           GH_TOKEN: ${{ github.token }}
+          N: ${{ github.run_number }}
         run: |
-          mkdir -p prove-agg && cd prove-agg
-          git init -q -b prove-aggiornamento && git add -A
-          git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Prova aggiornamento ${{ github.run_number }}" || true
-          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" prove-aggiornamento
+          errori=0
+          # l'artifact viene da un job dove gira codice di terzi: niente di quello che contiene deve essere eseguito.
+          # La cartella di git sta fuori dall'artifact (una .git dentro l'artifact git non la aggiunge mai), con hook
+          # e fsmonitor spenti, e un artifact con collegamenti simbolici si scarta.
+          salva() { # artifact, ramo, messaggio
+            local dir="risultati/$1" gd="$RUNNER_TEMP/git-$2"
+            [ -d "$dir" ] || { echo "Niente risultati per il ramo $2"; return 0; }
+            [ -z "$(find "$dir" -type l -print -quit)" ] || { echo "::error::collegamenti simbolici nell'artifact $1: non lo salvo"; errori=1; return 0; }
+            # una cartella .git dentro l'artifact (anche in una sottocartella) non deve diventare un rimando a un altro
+            # repository né far fallire git add: si toglie, tanto i risultati sono solo file
+            find "$dir" -name .git -prune -exec rm -rf {} +
+            g() { git --git-dir="$gd" --work-tree="$dir" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }
+            { g init -q -b "$2" && g add -A &&
+              { g -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "$3" || true; } &&
+              g push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$2"; } || errori=1
+          }
+          salva risultati-aggiornamento prove-aggiornamento "Prova aggiornamento $N"
+          exit $errori
