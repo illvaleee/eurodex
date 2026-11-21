@@ -185,8 +185,26 @@ I dati di sincronizzazione dell'amico restano in `collezioni/{uid}` e tornano ap
   - Storage risponde solo agli approvati.
 - **App nel browser** (Playwright con gli emulatori): le quattro schermate di accesso, la sezione di Valerio,
   l'approvazione che sblocca l'app in diretta, la revoca che la richiude.
-- **Telefono simulato**: l'APK di prova si collega agli emulatori di Firebase con un utente di prova già approvato.
-  Senza, la schermata di accesso fermerebbe tutte le prove di oggi.
+- **Telefono simulato**: qui c'è un problema vero da decidere insieme (vedi §6.1). Senza una soluzione, la schermata
+  di accesso fermerebbe tutte le prove di oggi sull'APK.
+
+### 6.1 Come provare l'APK vero con la schermata di accesso (da decidere)
+
+Oggi l'APK provato sul telefono simulato è **lo stesso, byte per byte**, di quello pubblicato: cambia solo la firma
+(R16, verificato con la 1.0.80). Questa garanzia va tenuta. Ma sul telefono simulato non c'è un account Google, quindi
+la schermata di accesso non si supera.
+
+| Strada | Come | Pro | Contro |
+| --- | --- | --- | --- |
+| A. APK di prova diverso | un'opzione al momento della compilazione toglie la schermata | semplice | **l'APK provato non è più quello pubblicato**: si perde R16 |
+| B. Modalità prove da adb | l'app salta la schermata solo se c'è una proprietà `debug.eurodex.prove` (la può mettere solo chi ha il telefono collegato con adb) | stesso APK; nessun segreto | chi ha adb vede l'app in locale (come chi modifica l'APK); i servizi restano chiusi dal server |
+| C. Emulatori di Firebase anche per l'APK | l'APK, se gli si dice con adb di usare gli emulatori, ci si collega e fa l'accesso finto | prova anche la schermata stessa | molto lavoro (accesso Google finto nell'app nativa); stessa questione di B |
+| D. Account Google di prova sul telefono simulato | si aggiunge un account vero sul telefono simulato | prova l'accesso vero | servirebbe la password di un account (non la inserisco io) e Google blocca gli accessi automatici |
+
+**Proposta: B**. La schermata di accesso è comodità per la persona, non sicurezza: il muro sta sul server (§3), e chi
+ha adb o modifica l'APK vede solo i dati già dentro l'APK, senza servizi. Con B l'APK provato resta quello pubblicato. La
+schermata stessa si prova nel browser (Playwright con gli emulatori: le quattro schermate, l'approvazione in
+diretta, la revoca) e sul telefono vero di Valerio, con il suo account. → **Domanda per Claude 2, Claude 3 e Valerio.**
 - **Telefono vero di Valerio** (USB, il suo account Google già sul telefono): accesso vero, richiesta, approvazione,
   sincronizzazione.
 - **Sicurezza**: dall'APK pubblicato, senza approvazione, una prova chiama direttamente Firestore e Storage con la
