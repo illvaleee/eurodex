@@ -4,6 +4,8 @@
 #  3) scarica google-services.json aggiornato (con l'identificativo "web" che serve all'app) e lo salva
 #     dove si indica (di solito android/app/google-services.json durante la compilazione).
 # Uso: KS_PASS=... python3 scripts/firebase-config.py [destinazione]
+# Nel workflow le impronte arrivano già calcolate (IMPRONTA_SHA1 e IMPRONTA_SHA256, che sono pubbliche): così
+# questo script non vede mai né la chiave di firma né la sua password.
 import base64, json, os, re, subprocess, sys, time
 from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
@@ -15,17 +17,26 @@ APP = json.load(open('native/google-services.json'))['client'][0]['client_info']
 BASE = f'https://firebase.googleapis.com/v1beta1/projects/{P}/androidApps/{APP}'
 
 # 1. impronte della firma
-out = subprocess.run(['keytool', '-list', '-v', '-keystore', os.environ.get('KEYSTORE_FILE', 'keystore/collezione-euro.jks'), '-alias', 'collezione', '-storepass:env', 'KS_PASS'],
-                     capture_output=True, text=True).stdout
-impronte = {'SHA_1': re.search(r'SHA1:\s*([0-9A-F:]+)', out), 'SHA_256': re.search(r'SHA256:\s*([0-9A-F:]+)', out)}
+def impronte_della_firma():
+    da_fuori = {'SHA_1': os.environ.get('IMPRONTA_SHA1', ''), 'SHA_256': os.environ.get('IMPRONTA_SHA256', '')}
+    if all(da_fuori.values()):
+        return da_fuori
+    out = subprocess.run(['keytool', '-list', '-v', '-keystore', os.environ.get('KEYSTORE_FILE', 'keystore/collezione-euro.jks'), '-alias', 'collezione', '-storepass:env', 'KS_PASS'],
+                         capture_output=True, text=True).stdout
+    trovate = {'SHA_1': re.search(r'SHA1:\s*([0-9A-F:]+)', out), 'SHA_256': re.search(r'SHA256:\s*([0-9A-F:]+)', out)}
+    return {tipo: (m.group(1) if m else '') for tipo, m in trovate.items()}
+
+
+LUNGHEZZA = {'SHA_1': 40, 'SHA_256': 64}
+impronte = impronte_della_firma()
 r = s.get(f'{BASE}/sha')
 gia = {c['shaHash'].lower() for c in r.json().get('certificates', [])} if r.ok else set()
 if not r.ok:
     print(f'(non riesco a leggere le impronte registrate: {r.status_code} {r.text[:200]})')
-for tipo, m in impronte.items():
-    if not m:
+for tipo, valore in impronte.items():
+    h = valore.replace(':', '').lower()
+    if not re.fullmatch('[0-9a-f]{%d}' % LUNGHEZZA[tipo], h):
         print(f'❌ impronta {tipo} non letta dalla firma'); continue
-    h = m.group(1).replace(':', '').lower()
     if h in gia:
         print(f'✓ impronta {tipo} già registrata')
     else:

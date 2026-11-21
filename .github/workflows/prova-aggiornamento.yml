@@ -21,11 +21,18 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Versione vecchia
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download "${{ inputs.vecchia }}" -R ${{ github.repository }} -p CollezioneEuro.apk -O vecchia.apk
+          VECCHIA: ${{ inputs.vecchia }}
+          NUOVA: ${{ inputs.nuova }}
+        run: |
+          [[ "$NUOVA" =~ ^[0-9]{1,4}$ ]] || { echo "::error::'nuova' deve essere solo il numero (es. 78)"; exit 1; }
+          echo "NUOVA=$NUOVA" >> "$GITHUB_ENV"
+          gh release download "$VECCHIA" -R "$GITHUB_REPOSITORY" -p CollezioneEuro.apk -O vecchia.apk
 
       - name: Accelerazione per l'emulatore
         run: |
@@ -37,7 +44,7 @@ jobs:
         run: pip install --quiet google-auth requests pillow
 
       - name: Prova dell'aggiornamento dall'app
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 34
           target: google_apis
@@ -45,12 +52,15 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: python3 scripts/test-emulator.py vecchia.apk prove-agg aggiornamento ${{ inputs.nuova }}
+          script: python3 scripts/test-emulator.py vecchia.apk prove-agg aggiornamento "$NUOVA"
 
       - name: Salva i risultati della prova
         if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VECCHIA: ${{ inputs.vecchia }}
         run: |
           mkdir -p prove-agg && cd prove-agg
           git init -q -b prove-aggiornamento && git add -A
-          git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Prova aggiornamento ${{ inputs.vecchia }} -> ${{ inputs.nuova }}" || true
-          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" prove-aggiornamento
+          git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Prova aggiornamento $VECCHIA -> $NUOVA" || true
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" prove-aggiornamento

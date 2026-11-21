@@ -13,6 +13,7 @@ on:
         'scripts/firebase-prepara.py',
         'scripts/prova-sincronizzazione.py',
         'scripts/firebase-config.py',
+        'scripts/requisiti-google.txt',
         '.github/workflows/sincronizzazione.yml',
       ]
 
@@ -38,6 +39,14 @@ jobs:
         with:
           node-version: 22
 
+      # tutto quello che si scarica da fuori si installa PRIMA dei segreti, con versioni e impronte fisse
+      - name: Strumenti (pacchetti Python e firebase-tools dai loro file con le versioni fisse)
+        run: |
+          pip install --quiet --require-hashes -r scripts/requisiti-google.txt
+          (cd firebase/strumenti && npm ci --no-audit --no-fund --silent)
+          (cd firebase/functions && npm ci --no-audit --no-fund --silent)
+          firebase/strumenti/node_modules/.bin/firebase --version
+
       - name: Chiave di Firebase (fuori dal progetto)
         env:
           FIREBASE_INVIO_JSON: ${{ secrets.FIREBASE_INVIO_JSON }}
@@ -47,29 +56,37 @@ jobs:
           printf '%s' "$FIREBASE_INVIO_JSON" > "$RUNNER_TEMP/segreti/firebase.json"
 
       - name: Prepara Firebase (servizi, piano, database)
-        run: |
-          pip install --quiet google-auth requests
-          FIREBASE_SA_FILE="$RUNNER_TEMP/segreti/firebase.json" python3 scripts/firebase-prepara.py
+        run: FIREBASE_SA_FILE="$RUNNER_TEMP/segreti/firebase.json" python3 scripts/firebase-prepara.py
 
-      - name: Accesso con Google (impronta dell'app e configurazione)
+      # la chiave di firma (che non si potrà cambiare mai) serve solo per le sue impronte, che sono pubbliche: le ricava
+      # keytool qui, senza Python e senza codice scaricato; la chiave e la sua password non arrivano a nessun altro passaggio
+      - name: Impronte della chiave di firma (solo keytool)
         env:
           KEYSTORE_JKS_B64: ${{ secrets.KEYSTORE_JKS_B64 }}
           KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
           umask 077
-          printf '%s' "$KEYSTORE_JKS_B64" | base64 -d > "$RUNNER_TEMP/segreti/firma.jks"
-          KEYSTORE_FILE="$RUNNER_TEMP/segreti/firma.jks" FIREBASE_SA_FILE="$RUNNER_TEMP/segreti/firebase.json" python3 scripts/firebase-config.py
-          # la chiave di firma serve solo qui (impronte per "Accedi con Google"): via subito, prima dei passaggi dopo
-          rm -f "$RUNNER_TEMP/segreti/firma.jks"
+          jks="$RUNNER_TEMP/segreti/firma.jks"
+          trap 'rm -f "$jks"' EXIT
+          printf '%s' "$KEYSTORE_JKS_B64" | base64 -d > "$jks"
+          elenco="$(keytool -list -v -keystore "$jks" -alias collezione -storepass:env KS_PASS)"
+          sha1="$(printf '%s\n' "$elenco" | sed -n 's/^[[:space:]]*SHA1:[[:space:]]*\([0-9A-F:]*\).*/\1/p' | head -n 1)"
+          sha256="$(printf '%s\n' "$elenco" | sed -n 's/^[[:space:]]*SHA256:[[:space:]]*\([0-9A-F:]*\).*/\1/p' | head -n 1)"
+          [[ "$sha1" =~ ^([0-9A-F]{2}:){19}[0-9A-F]{2}$ ]] || { echo "::error::impronta SHA-1 non letta dalla chiave di firma"; exit 1; }
+          [[ "$sha256" =~ ^([0-9A-F]{2}:){31}[0-9A-F]{2}$ ]] || { echo "::error::impronta SHA-256 non letta dalla chiave di firma"; exit 1; }
+          { echo "IMPRONTA_SHA1=$sha1"; echo "IMPRONTA_SHA256=$sha256"; } >> "$GITHUB_ENV"
+          echo "Impronte lette (sono pubbliche): SHA-1 $sha1"
+
+      - name: Accesso con Google (impronta dell'app e configurazione)
+        run: FIREBASE_SA_FILE="$RUNNER_TEMP/segreti/firebase.json" python3 scripts/firebase-config.py
 
       - name: Regole del database e postino
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/segreti/firebase.json
         run: |
-          (cd firebase/functions && npm install --no-audit --no-fund --silent)
           # la prima volta Google impiega qualche minuto a dare i permessi ai suoi servizi interni: si riprova
           for i in 1 2 3 4; do
-            if npx --yes firebase-tools@latest deploy --only firestore:rules,firestore:indexes,functions --project collezione-euro-24ecd --non-interactive --force; then exit 0; fi
+            if firebase/strumenti/node_modules/.bin/firebase deploy --only firestore:rules,firestore:indexes,functions --project collezione-euro-24ecd --non-interactive --force; then exit 0; fi
             echo "Non è andata, riprovo tra 2 minuti ($i/4)"; sleep 120
           done
           exit 1
