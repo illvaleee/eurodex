@@ -73,7 +73,6 @@ jobs:
     if: ${{ needs.controllo.outputs.serve == 'true' && !inputs.senza_prove }}
     permissions:
       contents: read
-      actions: write
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -105,11 +104,6 @@ jobs:
           name: prove-browser
           path: prove-foto
           retention-days: 7
-      - name: Al primo errore si fermano anche le altre prove (si risparmiano minuti)
-        if: ${{ failure() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
 
   # controlli del codice, test e compilazione dell'APK (uguale su tutti i rami, senza nessun segreto)
   build:
@@ -117,7 +111,6 @@ jobs:
     if: ${{ needs.controllo.outputs.serve == 'true' }}
     permissions:
       contents: read
-      actions: write
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -199,18 +192,12 @@ jobs:
         with:
           name: apk-prova
           path: CollezioneEuro.apk
-      - name: Al primo errore si fermano anche le altre prove (si risparmiano minuti)
-        if: ${{ failure() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
 
   test:
     needs: [controllo, build]
     if: ${{ !inputs.senza_prove }}
     permissions:
-      contents: write
-      actions: write
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -229,6 +216,9 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Strumenti per le prove (versioni e impronte fisse)
+        run: pip install --quiet --require-hashes -r scripts/requisiti-prove.txt
+
       - name: Prova su un telefono Android simulato
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
@@ -240,22 +230,16 @@ jobs:
           ram-size: 4096M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: pip install -q pillow >/dev/null 2>&1; python3 scripts/test-emulator.py CollezioneEuro.apk prove-emu
+          script: python3 scripts/test-emulator.py CollezioneEuro.apk prove-emu
 
-      - name: Salva i risultati della prova
+      - name: Risultati come artifact (li mette sul ramo prove un job a parte, con il permesso di scrittura)
         if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p prove-emu && cd prove-emu
-          git init -q -b prove && git add -A
-          git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Prova APK ${{ github.run_number }}" || true
-          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" prove
-      - name: Al primo errore si fermano anche le altre prove (si risparmiano minuti)
-        if: ${{ failure() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: risultati-prove
+          path: prove-emu
+          if-no-files-found: ignore
+          retention-days: 14
 
   # l'esploratore prova l'APK nuovo come una persona che lo vede per la prima volta: scopre da solo schermate ed
   # elementi, tocca, scorre e scrive tutto, e controlla crash, blocchi, grafica, accessibilità e dati
@@ -263,8 +247,7 @@ jobs:
     needs: [controllo, build]
     if: ${{ !inputs.senza_prove }}
     permissions:
-      contents: write
-      actions: write
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -280,7 +263,8 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - run: pip install --quiet pillow
+      - name: Strumenti per le prove (versioni e impronte fisse)
+        run: pip install --quiet --require-hashes -r scripts/requisiti-prove.txt
       - name: Esplorazione
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
@@ -293,20 +277,14 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: adb install -r CollezioneEuro.apk && python3 prove/esploratore.py it.collezione.euro esplorazione 30
-      - name: 'Risultati sul ramo esplorazione'
+      - name: Risultati come artifact (li mette sul ramo esplorazione un job a parte, con il permesso di scrittura)
         if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p esplorazione && cd esplorazione
-          git init -q -b esplorazione && git add -A
-          git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Esplorazione APK ${{ github.run_number }}" || true
-          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" esplorazione
-      - name: Al primo errore si fermano anche le altre prove (si risparmiano minuti)
-        if: ${{ failure() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: risultati-esplorazione
+          path: esplorazione
+          if-no-files-found: ignore
+          retention-days: 14
 
   # prima di pubblicare: la versione nuova installata sopra quella già pubblicata (come un aggiornamento), con
   # monete segnate e una preferita: la collezione deve restare tutta
@@ -317,8 +295,7 @@ jobs:
     needs: [controllo, build]
     if: ${{ !inputs.senza_prove }}
     permissions:
-      contents: write
-      actions: write
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -352,6 +329,9 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      - name: Strumenti per le prove (versioni e impronte fisse)
+        if: ${{ steps.prec.outputs.c == 'si' }}
+        run: pip install --quiet --require-hashes -r scripts/requisiti-prove.txt
       - name: Versione nuova sopra quella pubblicata
         if: ${{ steps.prec.outputs.c == 'si' }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
@@ -364,21 +344,47 @@ jobs:
           ram-size: 4096M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: pip install -q pillow >/dev/null 2>&1; python3 scripts/test-emulator.py vecchia.apk prove-sopra sopra CollezioneEuro.apk
-      - name: Salva i risultati della prova
+          script: python3 scripts/test-emulator.py vecchia.apk prove-sopra sopra CollezioneEuro.apk
+      - name: Risultati come artifact (li mette sul ramo prove-sopra un job a parte, con il permesso di scrittura)
         if: ${{ always() && steps.prec.outputs.c == 'si' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: risultati-sopra
+          path: prove-sopra
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # i risultati di test, esplorazione e sopra sui rami prove, esplorazione e prove-sopra
+  # (qui non gira codice di terzi: niente action dell'emulatore, niente pacchetti, nemmeno il checkout)
+  salva-prove:
+    needs: [build, test, esplorazione, sopra]
+    if: ${{ !cancelled() && !inputs.senza_prove && needs.build.result == 'success' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: risultati-*
+          path: risultati
+      - name: Risultati sui rami delle prove
         env:
           GH_TOKEN: ${{ github.token }}
+          N: ${{ github.run_number }}
         run: |
-          mkdir -p prove-sopra && cd prove-sopra
-          git init -q -b prove-sopra && git add -A
-          git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Prova sopra la versione pubblicata ${{ github.run_number }}" || true
-          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" prove-sopra
-      - name: Al primo errore si fermano anche le altre prove (si risparmiano minuti)
-        if: ${{ failure() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh run cancel ${{ github.run_id }} -R ${{ github.repository }}
+          errori=0
+          salva() { # artifact, ramo, messaggio
+            [ -d "risultati/$1" ] || { echo "Niente risultati per il ramo $2"; return 0; }
+            (cd "risultati/$1" && git init -q -b "$2" && git add -A &&
+              { git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "$3" || true; } &&
+              git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$2") || errori=1
+          }
+          salva risultati-prove prove "Prova APK $N"
+          salva risultati-esplorazione esplorazione "Esplorazione APK $N"
+          salva risultati-sopra prove-sopra "Prova sopra la versione pubblicata $N"
+          exit $errori
 
   # Firma con la chiave vera e pubblicazione: solo su main, solo se tutte le prove sono passate, e solo dopo che Vale
   # tocca "Approve" (environment "pubblicazione" con Vale come revisore): i segreti arrivano a questo job solo dopo
@@ -490,6 +496,13 @@ jobs:
           git push -f git@github.com:illvaleee/collezione-euro-download.git main
           rm -f "$RUNNER_TEMP/segreti/deploy"
 
+      - name: version.json per il job della notifica
+        uses: actions/upload-artifact@v4
+        with:
+          name: version-json
+          path: pub/version.json
+          retention-days: 7
+
       - name: Segna nel repository il numero di versione delle novità
         run: |
           git fetch -q origin main && git checkout -q -B main origin/main
@@ -499,12 +512,40 @@ jobs:
             for i in 1 2 3; do git push -q origin main && break; git pull -q --rebase origin main; done
           fi
 
+      - name: Via i file dei segreti
+        if: ${{ always() }}
+        run: rm -rf "$RUNNER_TEMP/segreti"
+
+  # la notifica sui telefoni in un job a parte: qui girano pacchetti Python (versioni e impronte fisse) con la chiave
+  # di Firebase, ma senza la chiave di firma e senza il permesso di scrittura. L'environment catalogo ha il Secret
+  # FIREBASE_INVIO_JSON e nessun revisore: l'approvazione di Vale c'è già stata in firma-e-pubblica.
+  notifica:
+    needs: [controllo, firma-e-pubblica]
+    if: ${{ needs.firma-e-pubblica.result == 'success' && github.repository == 'illvaleee/eurodex' && github.ref == 'refs/heads/main' }}
+    environment: catalogo
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.controllo.outputs.sha }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: version-json
+          path: pub
+
+      # prima i pacchetti (versioni e impronte fisse), poi la chiave: pip non gira mai con la chiave su disco
+      - name: Strumenti per la notifica
+        run: pip install --quiet --require-hashes -r scripts/requisiti-google.txt
+
       - name: Notifica immediata sui telefoni (Firebase)
         env:
           FIREBASE_INVIO_JSON: ${{ secrets.FIREBASE_INVIO_JSON }}
         run: |
-          # prima i pacchetti (versioni e impronte fisse), poi la chiave: pip non gira mai con la chiave su disco
-          pip install --quiet --require-hashes -r scripts/requisiti-google.txt
           umask 077
           mkdir -p "$RUNNER_TEMP/segreti"
           printf '%s' "$FIREBASE_INVIO_JSON" > "$RUNNER_TEMP/segreti/firebase.json"
@@ -518,7 +559,7 @@ jobs:
     needs: [controllo, firma-e-pubblica]
     if: ${{ !inputs.senza_prove }}
     permissions:
-      contents: write
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -557,12 +598,41 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: python3 scripts/test-emulator.py vecchia.apk prove-agg aggiornamento ${{ needs.controllo.outputs.n }}
 
-      - name: Salva i risultati della prova
+      - name: Risultati come artifact (li mette sul ramo prove-aggiornamento un job a parte, con il permesso di scrittura)
         if: ${{ always() && steps.prec.outputs.c == 'si' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: risultati-aggiornamento
+          path: prove-agg
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # i risultati della prova dell'aggiornamento sul ramo prove-aggiornamento
+  # (qui non gira codice di terzi: niente action dell'emulatore, niente pacchetti, nemmeno il checkout)
+  salva-aggiornamento:
+    needs: [aggiornamento]
+    if: ${{ !cancelled() && needs.aggiornamento.result != 'skipped' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: risultati-aggiornamento
+          path: risultati
+      - name: Risultati sui rami delle prove
         env:
           GH_TOKEN: ${{ github.token }}
+          N: ${{ github.run_number }}
         run: |
-          mkdir -p prove-agg && cd prove-agg
-          git init -q -b prove-aggiornamento && git add -A
-          git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Prova aggiornamento ${{ github.run_number }}" || true
-          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" prove-aggiornamento
+          errori=0
+          salva() { # artifact, ramo, messaggio
+            [ -d "risultati/$1" ] || { echo "Niente risultati per il ramo $2"; return 0; }
+            (cd "risultati/$1" && git init -q -b "$2" && git add -A &&
+              { git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "$3" || true; } &&
+              git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$2") || errori=1
+          }
+          salva risultati-aggiornamento prove-aggiornamento "Prova aggiornamento $N"
+          exit $errori

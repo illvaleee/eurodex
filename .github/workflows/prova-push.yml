@@ -14,7 +14,7 @@ jobs:
     if: ${{ github.repository == 'illvaleee/eurodex' && github.ref == 'refs/heads/main' }}
     environment: pubblicazione
     permissions:
-      contents: write
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -57,16 +57,45 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: python3 scripts/prova-push-emulatore.py app.apk prove-push
 
-      - name: Salva i risultati
+      - name: Risultati come artifact (li mette sul ramo prove-push un job a parte, con il permesso di scrittura)
         if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p prove-push && cd prove-push
-          git init -q -b prove-push && git add -A
-          git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Prova push ${{ github.run_number }}" || true
-          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" prove-push
+        uses: actions/upload-artifact@v4
+        with:
+          name: risultati-push
+          path: prove-push
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Via i file dei segreti
         if: always()
         run: rm -rf "$RUNNER_TEMP/segreti"
+
+  # i risultati della prova sul ramo prove-push
+  # (qui non gira codice di terzi: niente action dell'emulatore, niente pacchetti, nemmeno il checkout)
+  salva:
+    needs: [prova]
+    if: ${{ !cancelled() && needs.prova.result != 'skipped' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: risultati-push
+          path: risultati
+      - name: Risultati sui rami delle prove
+        env:
+          GH_TOKEN: ${{ github.token }}
+          N: ${{ github.run_number }}
+        run: |
+          errori=0
+          salva() { # artifact, ramo, messaggio
+            [ -d "risultati/$1" ] || { echo "Niente risultati per il ramo $2"; return 0; }
+            (cd "risultati/$1" && git init -q -b "$2" && git add -A &&
+              { git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "$3" || true; } &&
+              git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$2") || errori=1
+          }
+          salva risultati-push prove-push "Prova push $N"
+          exit $errori
