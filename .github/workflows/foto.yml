@@ -70,4 +70,4 @@ jobs:
           name: foto-bundle
           path: ${{ runner.temp }}/bundle
       - name: Salva nel repository (solo i file dei dati)
-        run: bash scripts/applica-dati.sh "$RUNNER_TEMP/bundle/foto.bundle"
+        run: bash scripts/applica-dati.sh "$RUNNER_TEMP/bundle/foto.bundle" "Foto BCE ($(date +%F))"

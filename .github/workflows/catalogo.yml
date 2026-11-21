@@ -153,7 +153,7 @@ jobs:
 
       - name: Salva nel repository (solo i file dei dati)
         if: ${{ needs.scarica.outputs.cambi == 'si' }}
-        run: bash scripts/applica-dati.sh "$RUNNER_TEMP/bundle/catalogo.bundle"
+        run: bash scripts/applica-dati.sh "$RUNNER_TEMP/bundle/catalogo.bundle" "Catalogo aggiornato ($(date +%F)) [skip ci]"
 
       # GitHub spegne i workflow programmati di un progetto pubblico dopo 60 giorni senza attività: se l'ultimo commit ha
       # più di 45 giorni, un commit vuoto di promemoria (senza far partire niente)
@@ -188,6 +188,17 @@ jobs:
           # rev viene dai dati preparati da "scarica" (codice di terzi): qui deve essere solo un numero, e non entra
           # mai nel testo di uno script (Python o shell), solo come argomento
           [[ "$REV" =~ ^[0-9]{1,9}$ ]] || { echo "::error title=Dati::rev non valido in www/data/indice.json"; exit 1; }
+          # anche la nota (il testo che arriva sui telefoni) e lo schema vengono dai dati: solo un testo breve e un numero
+          python3 - <<'PY'
+          import json, sys, unicodedata
+          j = json.load(open('www/data/indice.json'))
+          nota, schema = j.get('note', ''), j.get('schema', 1)
+          # niente link, niente caratteri di controllo o invisibili (per esempio quelli che girano il verso del testo)
+          testo_ok = isinstance(nota, str) and len(nota) <= 300 and '://' not in nota and not any(unicodedata.category(c) in ('Cc', 'Cf') for c in nota)
+          if not (testo_ok and type(schema) is int and 0 < schema < 1000):
+              print('::error title=Dati::nota o schema non validi in www/data/indice.json')
+              sys.exit(1)
+          PY
           for i in 1 2 3; do
             rm -rf /tmp/dl && git clone -q --depth 1 git@github.com:illvaleee/collezione-euro-download.git /tmp/dl
             # catalogo e schede anche con il numero dei dati nel nome (catalog-REV.json): un file nuovo non passa dalla
@@ -213,6 +224,7 @@ jobs:
           name: indice-dati
           path: www/data/indice.json
           retention-days: 7
+          overwrite: true
 
       - name: Via i file dei segreti
         if: always()
