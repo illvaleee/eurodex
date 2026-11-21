@@ -5,6 +5,7 @@ import { avvisa } from '../core/errori';
 import { leggiFresco } from '../core/rete';
 import { nativo } from '../nativo/plugin';
 import type { CatalogoGrezzo, Schede } from './tipi';
+import { nomeFileDatiValido, nomeFotoValido, revisioneValida } from './nomi-dati';
 
 /**
  * Dati aggiornabili senza installare una versione nuova: catalogo, schede e foto sono pubblicati anche da soli
@@ -97,6 +98,7 @@ function base64(b: Blob): Promise<string> {
 }
 
 async function scaricaFoto(nome: string): Promise<boolean> {
+  if (!nomeFotoValido(nome)) return false;
   try {
     const f = await fetch(URL_DATI + nome);
     if (!f.ok) return false;
@@ -150,10 +152,11 @@ export async function scaricaDatiNuovi(): Promise<EsitoAggiornamento> {
     } catch {
       return { tipo: 'niente' };
     }
+    if (!revisioneValida(ix.rev)) return { tipo: 'niente' };
     if (!(ix.rev > dati.rev)) {
       // stessi dati: si recuperano solo le foto che un aggiornamento precedente non era riuscito a scaricare
       if (!dati.locale || ix.rev !== dati.rev) return { tipo: 'niente' };
-      const mancano = (ix.img ?? []).filter(x => !fotoApk.has(x) && !dati.img.has(x));
+      const mancano = (ix.img ?? []).filter(x => nomeFotoValido(x) && !fotoApk.has(x) && !dati.img.has(x));
       for (const x of mancano) if (await scaricaFoto(x)) dati.img.add(x);
       if (!mancano.length) return { tipo: 'niente' };
       const st = await leggiDato<StatoDati>('stato.json');
@@ -165,7 +168,10 @@ export async function scaricaDatiNuovi(): Promise<EsitoAggiornamento> {
       dati.serveAppNuova = true;
       return { tipo: 'serveAppNuova' };
     }
-    // 1) catalogo e schede
+    // 1) catalogo e schede (con nomi di file solo come previsto: diventano indirizzi)
+    // (l'indice arriva da fuori: il campo file potrebbe anche mancare, qualunque cosa dica il tipo)
+    const nomi = (ix as Partial<IndiceDati>).file;
+    if (!nomi || !nomeFileDatiValido(nomi.catalogo) || !nomeFileDatiValido(nomi.schede)) return { tipo: 'niente' };
     const [rc, rs] = await Promise.all([
       fetch(`${URL_DATI}${ix.file.catalogo}?r=${ix.rev}`),
       fetch(`${URL_DATI}${ix.file.schede}?r=${ix.rev}`),
@@ -176,7 +182,7 @@ export async function scaricaDatiNuovi(): Promise<EsitoAggiornamento> {
     const cat = JSON.parse(testoCatalogo) as CatalogoGrezzo;
     if (!cat.types.length) return { tipo: 'niente' };
     // 2) foto che mancano: quelle che non sono né nell'APK né già scaricate (4 alla volta)
-    const nelNuovo = new Set(ix.img ?? []);
+    const nelNuovo = new Set((ix.img ?? []).filter(nomeFotoValido));
     const servono = [...nelNuovo].filter(x => !fotoApk.has(x) && !dati.img.has(x));
     const prese = new Set([...dati.img].filter(x => nelNuovo.has(x)));
     for (let i = 0; i < servono.length; i += 4) {
@@ -307,6 +313,9 @@ export function caricaSchede(): Promise<Schede> {
 
 /** Indirizzo di una foto del catalogo: scaricata con un aggiornamento dei dati, oppure dentro l'APK. */
 export function indirizzoFoto(nome: string): string {
+  // solo i nomi previsti (img/<esadecimale>.webp): un indirizzo esterno messo nel catalogo farebbe sapere a chi lo
+  // controlla quando e da dove si apre l'app (revisione di Claude 3 su #10); per gli altri nomi, niente foto
+  if (!nomeFotoValido(nome)) return '';
   if (dati.base && dati.img.has(nome)) return dati.base + nome;
-  return /^https?:|^data:/.test(nome) ? nome : `data/${nome}`;
+  return `data/${nome}`;
 }
