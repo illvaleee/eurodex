@@ -243,7 +243,8 @@ jobs:
           ram-size: 4096M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: python3 scripts/test-emulator.py CollezioneEuro.apk prove-emu
+          # la prova viene anche registrata in video (scripts/video-prova.sh); l'esito resta quello della prova
+          script: bash scripts/video-prova.sh avvia; python3 scripts/test-emulator.py CollezioneEuro.apk prove-emu; esito=$?; bash scripts/video-prova.sh ferma video-prova; exit $esito
 
       - name: Risultati come artifact (li mette sul ramo prove un job a parte, con il permesso di scrittura)
         if: always()
@@ -251,6 +252,16 @@ jobs:
         with:
           name: risultati-prove
           path: prove-emu
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # il video in un artifact a parte: è pesante e non deve finire nella storia del ramo prove
+      - name: Video della prova
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-prova
+          path: video-prova
           if-no-files-found: ignore
           retention-days: 14
 
