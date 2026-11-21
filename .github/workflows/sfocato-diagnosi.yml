@@ -1,0 +1,116 @@
+name: Diagnosi sfocato (solo ramo di prova)
+
+# Solo per la diagnosi dello sfocato delle barre (backdrop-filter) nel WebView dell'app: stessa build del job
+# "build" di apk.yml, con in più il WebView ispezionabile (webContentsDebuggingEnabled), firmata con una chiave di
+# prova usa e getta. Parte solo con un push su questo ramo; non pubblica niente e non usa segreti.
+on:
+  push:
+    branches: [claude1/eurodex-sfocato-diagnosi]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnosi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      N: '81'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Dipendenze e app web
+        run: npm ci --no-audit --no-fund && npm run build
+
+      - name: WebView ispezionabile (solo per questa diagnosi)
+        run: |
+          python3 - <<'PY'
+          import json
+          c = json.load(open('capacitor.config.json'))
+          c.setdefault('android', {})['webContentsDebuggingEnabled'] = True
+          json.dump(c, open('capacitor.config.json', 'w'), indent=2)
+          PY
+          grep -n webContentsDebuggingEnabled capacitor.config.json
+
+      - name: Progetto Android
+        run: |
+          printf '{"code":%s,"version":"1.0.%s"}\n' "$N" "$N" > www/version.json
+          # le novità scritte per questa versione (senza numero) prendono il numero di questa versione
+          python3 scripts/numera-novita.py "$N"
+          # indice dei dati dentro l'APK (di solito c'è già, lo scrive "Scarica catalogo")
+          [ -f www/data/indice.json ] || node scripts/indice-dati.mjs
+          npx cap add android
+          npx cap sync android
+          node scripts/make-icons.mjs
+          cp native/*.java android/app/src/main/java/it/collezione/euro/
+          # backup di Android: solo la collezione (vedi native/res/xml/regole_backup.xml)
+          mkdir -p android/app/src/main/res/xml && cp native/res/xml/*.xml android/app/src/main/res/xml/
+          if grep -q 'android:fullBackupContent\|android:dataExtractionRules' android/app/src/main/AndroidManifest.xml; then echo "Regole di backup già nel manifest: da controllare"; exit 1; fi
+          sed -i '0,/<application/s##<application android:dataExtractionRules="@xml/regole_backup" android:fullBackupContent="@xml/backup_vecchio"#' android/app/src/main/AndroidManifest.xml
+          grep -c 'android:dataExtractionRules="@xml/regole_backup"' android/app/src/main/AndroidManifest.xml
+          sed -i 's#<uses-permission android:name="android.permission.INTERNET" />#<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />#' android/app/src/main/AndroidManifest.xml
+          grep -c REQUEST_INSTALL_PACKAGES android/app/src/main/AndroidManifest.xml
+          # avvisi degli aggiornamenti: permesso notifiche e WorkManager (controllo in secondo piano)
+          sed -i 's#<uses-permission android:name="android.permission.INTERNET" />#<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />#' android/app/src/main/AndroidManifest.xml
+          grep -c POST_NOTIFICATIONS android/app/src/main/AndroidManifest.xml
+          sed -i '0,/^dependencies {/s//dependencies {\n    implementation "androidx.work:work-runtime:2.9.1"\n    implementation "com.google.firebase:firebase-messaging:24.1.0"\n    implementation "androidx.credentials:credentials:1.3.0"\n    implementation "androidx.credentials:credentials-play-services-auth:1.3.0"\n    implementation "com.google.android.libraries.identity.googleid:googleid:1.1.1"/' android/app/build.gradle
+          grep -c "androidx.work:work-runtime" android/app/build.gradle
+          grep -c "firebase-messaging" android/app/build.gradle
+          # notifiche immediate (push, Firebase) e "Accedi con Google": configurazione del progetto Firebase. È nel
+          # progetto (sta comunque dentro ogni APK); le impronte della firma le registra "Server della sincronizzazione"
+          cp native/google-services.json android/app/google-services.json
+          sed -i 's#</application>#    <service android:name=".AvvisiPush" android:exported="false">\n            <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>\n        </service>\n    </application>#' android/app/src/main/AndroidManifest.xml
+          grep -c "AvvisiPush" android/app/src/main/AndroidManifest.xml
+          sed -i "s/versionCode [0-9]*/versionCode $N/; s/versionName \"[^\"]*\"/versionName \"1.0.$N\"/" android/app/build.gradle
+
+      - name: Compila e firma con una chiave di prova
+        run: |
+          (cd android && ./gradlew assembleRelease --no-daemon)
+          BT=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          "$BT/zipalign" -p -f 4 android/app/build/outputs/apk/release/app-release-unsigned.apk allineato.apk
+          keytool -genkeypair -keystore "$RUNNER_TEMP/prova.jks" -alias prova -keyalg RSA -keysize 2048 -validity 2 \
+            -storepass provaprova -keypass provaprova -dname "CN=Eurodex diagnosi" >/dev/null 2>&1
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/prova.jks" --ks-key-alias prova --ks-pass pass:provaprova --out diagnosi.apk allineato.apk
+          ls -lh diagnosi.apk
+
+      - name: Accelerazione per l'emulatore
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Strumenti per le prove (versioni e impronte fisse)
+        run: pip install --quiet --require-hashes -r scripts/requisiti-prove.txt
+
+      - name: Diagnosi sull'emulatore
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 4
+          ram-size: 4096M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash prove/sfocato-emulatore.sh
+
+      - name: Risultati
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: diagnosi-sfocato
+          path: sfocato
+          if-no-files-found: warn
+          retention-days: 7
