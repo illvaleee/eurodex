@@ -1258,14 +1258,32 @@ def numeri(st):
     return [n.testo for n in st.nodi if n.pkg == PKG and re.search(r'\d', n.testo)]
 
 
+def chiudi_invito(st):
+    """Il foglio «Stessa collezione su telefono e tablet» (Accedi con Google / Non ora) può comparire all'apertura e
+    coprire i numeri della schermata iniziale (foto 015_iniziale_senza_numeri.png della build della 1.0.81): si chiude
+    come farebbe una persona, con «Non ora». «Accedi con Google» qui non si tocca mai."""
+    n = next((x for x in st.nodi if x.pkg == PKG and x.testo.strip().lower() == 'non ora'), None)
+    if n is None:
+        return False
+    tocca(*n.centro)
+    log('    (sulla schermata iniziale c\'era l\'invito ad accedere con Google: chiuso con «Non ora»)')
+    time.sleep(1.5)
+    return True
+
+
 def numeri_iniziali(volte=6):
     """I numeri della schermata iniziale appena aperta, quando sono fermi: due letture uguali di fila a 2,5 secondi
     l'una dall'altra (all'avvio i contatori possono mostrare per un attimo valori calcolati prima che la collezione
-    sia caricata: consiglio di Claude 2 su #6). Si aspetta al massimo volte × 8 secondi in tutto."""
-    prima, atteso = [], 0.0
+    sia caricata: consiglio di Claude 2 su #6). Si aspetta al massimo volte × 8 secondi in tutto. Se i numeri non ci
+    sono perché li copre l'invito ad accedere, prima lo si chiude (al massimo tre volte)."""
+    prima, atteso, chiusi = [], 0.0, 0
     while atteso <= volte * 8:
         st = osserva()
         n = numeri(st) if st.pkg == PKG else []
+        if not n and chiusi < 3 and chiudi_invito(st):
+            chiusi += 1
+            prima = []
+            continue
         if n and n == prima:
             return n
         prima = n
