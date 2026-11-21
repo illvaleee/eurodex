@@ -26,12 +26,23 @@ function tokenDi(documenti) {
   return [...visti];
 }
 
-/** La notifica per Valerio quando arriva una richiesta di accesso. */
+/** Testo da fuori senza caratteri di controllo o di direzione (che possono rigirare quello che segue). */
+function pulito(x, max) {
+  return String(x || '')
+    .replace(/[\p{Cc}\p{Cf}]/gu, '')
+    .slice(0, max);
+}
+
+/**
+ * La notifica per Valerio quando arriva una richiesta di accesso. Prima l'email, che è quella vera dell'account
+ * (dal gettone): il nome è solo un aiuto e chiunque può sceglierselo (revisione di Claude 3 su #8).
+ */
 function messaggioRichiesta(uid, r) {
-  const nome = String((r && r.nome) || 'Qualcuno').slice(0, 80);
-  const email = String((r && r.email) || '').slice(0, 120);
+  const nome = pulito(r && r.nome, 80);
+  const email = pulito(r && r.email, 120);
+  const corpo = [email, nome].filter(Boolean).join(' · ') || 'Qualcuno';
   return {
-    notification: { title: 'Richiesta di accesso a Eurodex', body: email ? `${nome} (${email})` : nome },
+    notification: { title: 'Richiesta di accesso a Eurodex', body: corpo },
     data: { tipo: 'accesso', uid: String(uid) },
     android: { priority: 'high', ttl: 7 * 24 * 3600 * 1000 },
   };
@@ -65,4 +76,13 @@ function amministratore(env) {
   return /^[A-Za-z0-9]{20,64}$/.test(uid) ? uid : null;
 }
 
-module.exports = { STATI, datiSync, tokenDi, messaggioRichiesta, azioniCambioStato, tokenDaTogliere, amministratore };
+module.exports = {
+  STATI,
+  pulito,
+  datiSync,
+  tokenDi,
+  messaggioRichiesta,
+  azioniCambioStato,
+  tokenDaTogliere,
+  amministratore,
+};

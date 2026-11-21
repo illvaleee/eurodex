@@ -43,6 +43,8 @@ describe('accesso su approvazione: le parti senza rete', () => {
     expect(r.richiesta?.getTime()).toBe(0);
     expect(r.decisione).toBeNull();
     expect(richiestaDa('u2', { stato: 'boh' }).stato).toBe('nessuno');
+    const finta = richiestaDa('u3', { nome: 'Mamma\u202e\n(x)', dispositivo: 'Pixel\u200b 6', nota: 'a\tb' });
+    expect([finta.nome, finta.dispositivo, finta.nota]).toEqual(['Mamma(x)', 'Pixel 6', 'ab']);
   });
 
   it("l'ultimo stato conosciuto vale solo per lo stesso account", () => {

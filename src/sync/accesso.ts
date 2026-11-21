@@ -41,7 +41,9 @@ export interface Richiesta {
 export const statoValido = (s: unknown): StatoAccesso =>
   STATI.includes(s as Decisione) ? (s as Decisione) : 'nessuno';
 
-const testo = (x: unknown, max: number): string => (typeof x === 'string' ? x.slice(0, max) : '');
+// testo da fuori senza caratteri di controllo o di direzione (che possono rigirare quello che segue)
+const testo = (x: unknown, max: number): string =>
+  typeof x === 'string' ? x.replace(/[\p{Cc}\p{Cf}]/gu, '').slice(0, max) : '';
 /** Le date di Firestore (Timestamp) diventano Date; qualunque altra cosa, niente. */
 function data(x: unknown): Date | null {
   const t = x as { toDate?: () => unknown } | null | undefined;

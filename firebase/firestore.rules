@@ -36,9 +36,12 @@ service cloud.firestore {
       allow create: if mia(uid) && conGoogle()
         && request.resource.data.keys().hasOnly(['stato', 'nome', 'email', 'dispositivo', 'richiesta'])
         && request.resource.data.stato == 'in_attesa'
-        && request.resource.data.nome is string && request.resource.data.nome.size() <= 80
+        // nome e telefono sono solo un aiuto (si decide sull'email del gettone): niente @, che servirebbe a fingersi
+        // qualcun altro, e niente caratteri di controllo o di direzione del testo; al massimo 80 caratteri
+        && request.resource.data.nome is string && request.resource.data.nome.matches('[^@\\p{Cc}\\p{Cf}]{0,80}')
         && request.resource.data.email == request.auth.token.email
-        && request.resource.data.dispositivo is string && request.resource.data.dispositivo.size() <= 80
+        && request.resource.data.dispositivo is string
+        && request.resource.data.dispositivo.matches('[^@\\p{Cc}\\p{Cf}]{0,80}')
         && request.resource.data.richiesta == request.time;
       allow get: if mia(uid) || admin();
       allow list, delete: if admin();

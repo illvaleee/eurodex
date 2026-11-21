@@ -122,6 +122,12 @@ ok(scrivi(t_mar, f'accessi/{MAR}', richiesta('mario@example.com', nome='x' * 81)
    'nome troppo lungo: rifiutato')
 ok(scrivi(t_mar, f'accessi/{MAR}', richiesta('mario@example.com'), esiste=False) == 403,
    'la data della richiesta la mette il server, non l\'app')
+for cosa, valori in (('una @ nel nome (per fingersi un altro)', {'nome': 'Mamma (mamma.valerio@gmail.com)'}),
+                    ('un carattere che rigira il testo nel nome', {'nome': 'Mario \u202eossoR'}),
+                    ('un a capo nel nome', {'nome': 'Mario\nRossi'}),
+                    ('una @ nel nome del telefono', {'dispositivo': 'Samsung (x@y.it)'})):
+    ok(scrivi(t_mar, f'accessi/{MAR}', richiesta('mario@example.com', **valori), ora=['richiesta'], esiste=False) == 403,
+       f'{cosa}: rifiutato')
 t_mar_pw = gettone_senza_firma(MAR, 'mario@example.com', True, metodo='password')
 ok(scrivi(t_mar_pw, f'accessi/{MAR}', richiesta('mario@example.com'), ora=['richiesta'], esiste=False) == 403,
    'una richiesta da un accesso che non è Google: rifiutata')
@@ -132,7 +138,8 @@ ok(scrivi(t_mar, f'accessi/{MAR}', {'stato': 'approvato'}, ora=['decisione'], es
 ok(scrivi(t_mar, f'accessi/{MAR}', richiesta('mario@example.com'), ora=['richiesta']) == 403,
    'la richiesta non si riscrive (una sola per account)')
 ok(leggi(t_mar, f'accessi/{MAR}') == 200, 'ognuno vede la sua richiesta')
-ok(scrivi(t_luc, f'accessi/{LUC}', richiesta('lucia@example.com'), ora=['richiesta'], esiste=False) == 200, 'anche Lucia chiede')
+ok(scrivi(t_luc, f'accessi/{LUC}', richiesta('lucia@example.com', nome='Lucìa Pérez 🪙', dispositivo='Galaxy S24'),
+          ora=['richiesta'], esiste=False) == 200, 'anche Lucia chiede (nome con accenti ed emoji: va bene)')
 ok(leggi(t_mar, f'accessi/{LUC}') == 403, 'nessuno vede la richiesta degli altri')
 ok(http('GET', f'{FS}/accessi', chi=t_mar)[0] == 403, 'solo Valerio vede l\'elenco delle richieste')
 # lo stesso account di Valerio ma con un gettone che non ha l'email verificata (difesa in più: si entra solo con Google)
