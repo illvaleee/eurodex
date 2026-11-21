@@ -1044,14 +1044,17 @@ def numeri(st):
 
 
 def numeri_iniziali(volte=6):
-    """I numeri della schermata iniziale appena aperta: si aspetta che finisca l'animazione d'avvio e che
-    compaiano (come all'inizio dell'esplorazione), al massimo volte × 8 secondi."""
-    for _ in range(volte):
+    """I numeri della schermata iniziale appena aperta, quando sono fermi: due letture uguali di fila a 2,5 secondi
+    l'una dall'altra (all'avvio i contatori possono mostrare per un attimo valori calcolati prima che la collezione
+    sia caricata: consiglio di Claude 2 su #6). Si aspetta al massimo volte × 8 secondi."""
+    prima = []
+    for _ in range(volte * 3):
         st = osserva()
         n = numeri(st) if st.pkg == PKG else []
-        if n:
+        if n and n == prima:
             return n
-        time.sleep(8)
+        prima = n
+        time.sleep(2.5 if n else 8)
     return []
 
 

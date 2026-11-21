@@ -143,8 +143,9 @@ ok(any('resta coperto' in p['cosa'] for p in E.PROBLEMI), 'in fondo vero l\'ulti
 
 # 6 e 7. dati dopo chiusura e riapertura, sulla schermata iniziale quando non si torna a quella di prima
 def finta_riapertura(prima, dopo, vuote=0):
-    # prima dei numeri, `vuote` letture senza numeri (l'animazione d'avvio che non è ancora finita)
-    letture = iter([[]] * vuote + [prima] + [[]] * vuote + [dopo])
+    # prima dei numeri, `vuote` letture senza numeri (l'animazione d'avvio che non è ancora finita); poi ogni
+    # valore due volte, perché si accettano solo numeri fermi (due letture uguali di fila)
+    letture = iter([[]] * vuote + [prima, prima] + [[]] * vuote + [dopo, dopo])
     E.avvia = lambda *a, **k: None
     E.adb = lambda *a, **k: ''
     E.osserva = lambda: E.Stato(nodi=[], pkg=PKG, chiave='home', firma='', azioni=[], nome='Eurodex')
@@ -171,6 +172,14 @@ E.persistenza_dalla_home('alla fine dell\'esplorazione non ero in una schermata 
 diario = open(os.path.join(sys.argv[2], 'diario.txt'), encoding='utf-8').read()
 ok(not E.PROBLEMI and diario.count('schermata iniziale: tutto come prima') >= 2,
    'con l\'animazione d\'avvio ancora in corso aspetta i numeri invece di saltare')
+
+# 7a. all'avvio un contatore mostra per un attimo un valore provvisorio: si aspetta che sia fermo
+pulisci()
+finta_riapertura([], [])
+letture_avvio = iter([['0'], ['1575'], ['1575'], ['0'], ['1575'], ['1575']])
+E.numeri = lambda st: next(letture_avvio)
+E.persistenza_dalla_home('non riesco a tornare alla stessa schermata')
+ok(not E.PROBLEMI, 'un valore provvisorio all\'avvio non diventa un falso errore (si leggono solo numeri fermi)')
 
 # 7b. la schermata iniziale senza numeri: si salta, ma il diario dice cosa c'era (e non cade)
 pulisci()
