@@ -35,6 +35,34 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # le impronte del certificato di firma si leggono dall'APK pubblicato (sono pubbliche: stanno in ogni APK),
+      # così questo job non riceve mai la chiave di firma, che resta solo in firma-e-pubblica
+      - name: Impronte della firma (dall'APK pubblicato, senza la chiave)
+        id: impronte
+        shell: bash
+        run: |
+          # impronta SHA-256 del certificato di Eurodex (pubblica): se l'APK della pagina di download non è firmato
+          # con quello, ci si ferma invece di registrare in Firebase le impronte di un certificato estraneo
+          ATTESA_SHA256='F5:34:07:14:09:EB:37:52:83:C2:CC:B7:CB:7D:C2:AC:C4:59:B4:FB:D1:0A:C7:26:30:F3:F5:73:0C:A9:2D:68'
+          curl -fsSL https://raw.githubusercontent.com/illvaleee/collezione-euro-download/main/CollezioneEuro.apk -o "$RUNNER_TEMP/pubblicato.apk"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          CERT=$("$BT/apksigner" verify --print-certs "$RUNNER_TEMP/pubblicato.apk")
+          N=$(grep -c '^Signer #[0-9]* certificate SHA-256 digest:' <<< "$CERT" || true)
+          [ "$N" = 1 ] || { echo "::error title=Impronte::l'APK pubblicato ha $N firmatari, ne serve uno solo"; exit 1; }
+          SHA256=$(sed -n 's/^Signer #1 certificate SHA-256 digest: *//p' <<< "$CERT")
+          SHA1=$(sed -n 's/^Signer #1 certificate SHA-1 digest: *//p' <<< "$CERT")
+          norm() { tr -d ': \n' | tr '[:lower:]' '[:upper:]'; }
+          [ "$(norm <<< "$SHA256")" = "$(norm <<< "$ATTESA_SHA256")" ] \
+            || { echo "::error title=Impronte::l'APK pubblicato non è firmato con il certificato di Eurodex: mi fermo"; exit 1; }
+          [ -n "$SHA1" ] || { echo "::error title=Impronte::impronta SHA-1 non trovata nell'APK pubblicato"; exit 1; }
+          echo "sha1=$SHA1" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          rm -f "$RUNNER_TEMP/pubblicato.apk"
+          echo "Impronte lette dall'APK pubblicato: la SHA-256 è quella di Eurodex"
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -58,26 +86,11 @@ jobs:
       - name: Prepara Firebase (servizi, piano, database)
         run: FIREBASE_SA_FILE="$RUNNER_TEMP/segreti/firebase.json" python3 scripts/firebase-prepara.py
 
-      # la chiave di firma (che non si potrà cambiare mai) serve solo per le sue impronte, che sono pubbliche: le ricava
-      # keytool qui, senza Python e senza codice scaricato; la chiave e la sua password non arrivano a nessun altro passaggio
-      - name: Impronte della chiave di firma (solo keytool)
-        env:
-          KEYSTORE_JKS_B64: ${{ secrets.KEYSTORE_JKS_B64 }}
-          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
-        run: |
-          umask 077
-          jks="$RUNNER_TEMP/segreti/firma.jks"
-          trap 'rm -f "$jks"' EXIT
-          printf '%s' "$KEYSTORE_JKS_B64" | base64 -d > "$jks"
-          elenco="$(keytool -list -v -keystore "$jks" -alias collezione -storepass:env KS_PASS)"
-          sha1="$(printf '%s\n' "$elenco" | sed -n 's/^[[:space:]]*SHA1:[[:space:]]*\([0-9A-F:]*\).*/\1/p' | head -n 1)"
-          sha256="$(printf '%s\n' "$elenco" | sed -n 's/^[[:space:]]*SHA256:[[:space:]]*\([0-9A-F:]*\).*/\1/p' | head -n 1)"
-          [[ "$sha1" =~ ^([0-9A-F]{2}:){19}[0-9A-F]{2}$ ]] || { echo "::error::impronta SHA-1 non letta dalla chiave di firma"; exit 1; }
-          [[ "$sha256" =~ ^([0-9A-F]{2}:){31}[0-9A-F]{2}$ ]] || { echo "::error::impronta SHA-256 non letta dalla chiave di firma"; exit 1; }
-          { echo "IMPRONTA_SHA1=$sha1"; echo "IMPRONTA_SHA256=$sha256"; } >> "$GITHUB_ENV"
-          echo "Impronte lette (sono pubbliche): SHA-1 $sha1"
-
       - name: Accesso con Google (impronta dell'app e configurazione)
+        # solo le impronte, lette prima dall'APK pubblicato: niente keystore e niente password accanto a google-auth
+        env:
+          IMPRONTA_SHA1: ${{ steps.impronte.outputs.sha1 }}
+          IMPRONTA_SHA256: ${{ steps.impronte.outputs.sha256 }}
         run: FIREBASE_SA_FILE="$RUNNER_TEMP/segreti/firebase.json" python3 scripts/firebase-config.py
 
       - name: Regole del database e postino

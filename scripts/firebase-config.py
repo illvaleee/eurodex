@@ -3,9 +3,9 @@
 #  2) controlla che su Firebase sia attivo l'accesso con Google;
 #  3) scarica google-services.json aggiornato (con l'identificativo "web" che serve all'app) e lo salva
 #     dove si indica (di solito android/app/google-services.json durante la compilazione).
-# Uso: KS_PASS=... python3 scripts/firebase-config.py [destinazione]
-# Nel workflow le impronte arrivano già calcolate (IMPRONTA_SHA1 e IMPRONTA_SHA256, che sono pubbliche): così
-# questo script non vede mai né la chiave di firma né la sua password.
+# Uso nel workflow: IMPRONTA_SHA1=... IMPRONTA_SHA256=... python3 scripts/firebase-config.py [destinazione]
+#   (impronte lette dall'APK pubblicato: la chiave di firma non serve)
+# Uso a mano: KS_PASS=... python3 scripts/firebase-config.py [destinazione]   (impronte lette dal keystore)
 import base64, json, os, re, subprocess, sys, time
 from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
@@ -16,26 +16,25 @@ P = cr.project_id
 APP = json.load(open('native/google-services.json'))['client'][0]['client_info']['mobilesdk_app_id']
 BASE = f'https://firebase.googleapis.com/v1beta1/projects/{P}/androidApps/{APP}'
 
-# 1. impronte della firma
-def impronte_della_firma():
-    da_fuori = {'SHA_1': os.environ.get('IMPRONTA_SHA1', ''), 'SHA_256': os.environ.get('IMPRONTA_SHA256', '')}
-    if all(da_fuori.values()):
-        return da_fuori
+# 1. impronte della firma: dal workflow (lette dall'APK pubblicato) oppure, a mano, dal keystore
+def esadecimale(testo, byte):
+    v = (testo or '').replace(':', '').strip().lower()
+    return v if re.fullmatch(f'[0-9a-f]{{{2 * byte}}}', v) else None
+
+if os.environ.get('IMPRONTA_SHA1') or os.environ.get('IMPRONTA_SHA256'):
+    impronte = {'SHA_1': esadecimale(os.environ.get('IMPRONTA_SHA1'), 20),
+                'SHA_256': esadecimale(os.environ.get('IMPRONTA_SHA256'), 32)}
+else:
     out = subprocess.run(['keytool', '-list', '-v', '-keystore', os.environ.get('KEYSTORE_FILE', 'keystore/collezione-euro.jks'), '-alias', 'collezione', '-storepass:env', 'KS_PASS'],
                          capture_output=True, text=True).stdout
-    trovate = {'SHA_1': re.search(r'SHA1:\s*([0-9A-F:]+)', out), 'SHA_256': re.search(r'SHA256:\s*([0-9A-F:]+)', out)}
-    return {tipo: (m.group(1) if m else '') for tipo, m in trovate.items()}
-
-
-LUNGHEZZA = {'SHA_1': 40, 'SHA_256': 64}
-impronte = impronte_della_firma()
+    m1, m256 = re.search(r'SHA1:\s*([0-9A-F:]+)', out), re.search(r'SHA256:\s*([0-9A-F:]+)', out)
+    impronte = {'SHA_1': esadecimale(m1 and m1.group(1), 20), 'SHA_256': esadecimale(m256 and m256.group(1), 32)}
 r = s.get(f'{BASE}/sha')
 gia = {c['shaHash'].lower() for c in r.json().get('certificates', [])} if r.ok else set()
 if not r.ok:
     print(f'(non riesco a leggere le impronte registrate: {r.status_code} {r.text[:200]})')
-for tipo, valore in impronte.items():
-    h = valore.replace(':', '').lower()
-    if not re.fullmatch('[0-9a-f]{%d}' % LUNGHEZZA[tipo], h):
+for tipo, h in impronte.items():
+    if not h:
         print(f'❌ impronta {tipo} non letta dalla firma'); continue
     if h in gia:
         print(f'✓ impronta {tipo} già registrata')

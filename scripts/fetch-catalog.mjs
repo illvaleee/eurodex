@@ -25,7 +25,12 @@ try {
       .readFileSync(path.join(ROOT, 'scripts', 'numista-keys.txt'), 'utf8')
       .replace(/#.*$/gm, '');
 } catch {}
-const KEYS = keysText.split(/[\s,;]+/).filter(Boolean);
+// i commenti (da # a fine riga) si tolgono qualunque sia la fonte: anche il Secret NUMISTA_KEYS è il file intero,
+// e le parole dei commenti non devono diventare chiavi (né finire, come impronte, in numista-state.json)
+const KEYS = keysText
+  .replace(/#.*$/gm, '')
+  .split(/[\s,;]+/)
+  .filter(Boolean);
 const LIMIT = Number(process.env.LIMIT_PER_KEY || 1950);
 const PROBE = process.env.PROBE === '1';
 const UA = 'CollezioneEuro/1.0 (app privata, uso personale)';
