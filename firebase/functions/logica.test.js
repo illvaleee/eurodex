@@ -30,11 +30,13 @@ test('token: solo quelli validi, senza doppioni', () => {
   assert.deepEqual(t, [buono]);
 });
 
-test('richiesta di accesso: notifica con nome ed email, testi limitati', () => {
+test("richiesta di accesso: prima l'email vera, poi il nome, senza caratteri di controllo o di direzione", () => {
   const m = L.messaggioRichiesta('uid1', { nome: 'Mario', email: 'mario@example.com' });
-  assert.equal(m.notification.body, 'Mario (mario@example.com)');
+  assert.equal(m.notification.body, 'mario@example.com · Mario');
   assert.deepEqual(m.data, { tipo: 'accesso', uid: 'uid1' });
-  assert.equal(L.messaggioRichiesta('u', { nome: 'n'.repeat(300) }).notification.body.length, 80);
+  const finto = L.messaggioRichiesta('u', { nome: 'Mamma\u202e (x)\n', email: 'sconosciuto@example.com' });
+  assert.equal(finto.notification.body, 'sconosciuto@example.com · Mamma (x)');
+  assert.equal(L.messaggioRichiesta('u', { nome: 'n'.repeat(300), email: '' }).notification.body.length, 80);
   assert.equal(L.messaggioRichiesta('u', null).notification.body, 'Qualcuno');
 });
 
@@ -71,7 +73,7 @@ test('amministratore: solo un UID valido', () => {
   assert.equal(L.amministratore({}), null);
 });
 
-test('lo stesso amministratore nelle regole di Firestore e nelle funzioni', () => {
+test('lo stesso amministratore nei tre posti: regole, funzioni e app', () => {
   const regole = fs.readFileSync(path.join(__dirname, '..', 'firestore.rules'), 'utf8');
   const m = regole.match(/request\.auth\.uid == '([^']+)'/);
   assert.ok(m, "nelle regole manca l'UID dell'amministratore");
@@ -79,4 +81,8 @@ test('lo stesso amministratore nelle regole di Firestore e nelle funzioni', () =
   const e = env.match(/^ADMIN_UID=(.*)$/m);
   assert.ok(e, 'in firebase/functions/.env manca ADMIN_UID');
   assert.equal(e[1].trim(), m[1]);
+  const app = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'sync', 'accesso.ts'), 'utf8');
+  const a = app.match(/UID_AMMINISTRATORE = '([^']+)'/);
+  assert.ok(a, 'in src/sync/accesso.ts manca UID_AMMINISTRATORE');
+  assert.equal(a[1], m[1]);
 });
