@@ -94,9 +94,10 @@ jobs:
         run: npm ci --no-audit --no-fund && npm run build
       - name: Browser ed emulatori di Firebase per le prove
         run: |
-          pip install --quiet playwright
+          pip install --quiet --require-hashes -r prove/requisiti-browser.txt
           python3 -m playwright install --with-deps chromium >/dev/null
-          npm install --no-save --no-audit --no-fund firebase-tools
+          # firebase-tools a versione fissa, con il lockfile (lo stesso di sincronizzazione.yml)
+          (cd firebase/strumenti && npm ci --no-audit --no-fund --silent)
       - name: Prove come una persona
         run: PROVE_FOTO=$PWD/prove-foto bash prove/esegui.sh
       - name: Foto delle prove
@@ -566,7 +567,8 @@ jobs:
   # FIREBASE_INVIO_JSON e nessun revisore: l'approvazione di Vale c'è già stata in firma-e-pubblica.
   notifica:
     needs: [controllo, firma-e-pubblica]
-    if: ${{ needs.firma-e-pubblica.result == 'success' && github.repository == 'illvaleee/eurodex' && github.ref == 'refs/heads/main' }}
+    # !cancelled(): senza, un job saltato più indietro (le prove, con senza_prove) fa saltare anche la notifica
+    if: ${{ !cancelled() && needs.firma-e-pubblica.result == 'success' && github.repository == 'illvaleee/eurodex' && github.ref == 'refs/heads/main' }}
     environment: catalogo
     permissions:
       contents: read
