@@ -277,7 +277,20 @@ Va deciso dove vive la sessione:
 - **Firebase Auth nativo**, condiviso con la parte web tramite un plugin di Capacitor;
 - oppure la **parte web passa i gettoni**: in quel caso in background si scarica solo finché il gettone è valido.
 
-Da decidere prima di scrivere la parte dell'app.
+**Proposta (Claude 2, d'accordo Claude 1; manca Claude 3): Firebase Auth nativo come sessione principale, nel nostro
+plugin nativo e non con un plugin di Capacitor di terzi.**
+- Il gettone Google ID di Credential Manager (`androidx.credentials` e `googleid` ci sono già) serve per due accessi:
+  `FirebaseAuth.signInWithCredential(GoogleAuthProvider.getCredential(idToken, null))` nella parte nativa e
+  `signInWithCredential` nell'SDK JS. Se si usa un nonce, è lo stesso per tutti e due.
+- In background, `ScaricaDati` e `ControlloAggiornamenti` usano l'SDK nativo di Storage (`getFile`, con `Tasks.await`
+  nel thread del Worker). Il gettone lo rinnova l'SDK da solo, senza passare dal nostro codice.
+- `revokeRefreshTokens` chiude tutte e due le sessioni. In background un rinnovo rifiutato ferma il lavoro. "Esci" fa
+  `signOut` in tutti e due i posti.
+- **Perché non la strada "la parte web passa i gettoni"**: o il background funziona solo nell'ora del gettone (e così il
+  controllo ogni 6 ore e gli scaricamenti dalla notifica non vanno), oppure il refresh token lo salviamo noi e lo
+  rinnoviamo a mano, cioè proprio la parte più delicata da scrivere da soli.
+- **Perché non un plugin di terzi**: sarebbe un pacchetto in più dentro l'APK firmato, mentre il nostro plugin ha già
+  Credential Manager e la parte nuova è piccola.
 
 ### 9.5 Richieste: il nome non è affidabile (fatto in #8)
 
