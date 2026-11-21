@@ -199,7 +199,7 @@ jobs:
               print('::error title=Dati::nota o schema non validi in www/data/indice.json')
               sys.exit(1)
           PY
-          for i in 1 2 3; do
+          for _ in 1 2 3; do
             rm -rf /tmp/dl && git clone -q --depth 1 git@github.com:illvaleee/collezione-euro-download.git /tmp/dl
             # catalogo e schede anche con il numero dei dati nel nome (catalog-REV.json): un file nuovo non passa dalla
             # cache di GitHub, quindi chi scarica subito dopo la notifica prende davvero quelli nuovi. Si tengono gli
