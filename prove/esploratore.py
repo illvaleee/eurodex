@@ -1025,27 +1025,34 @@ def numeri(st):
     return [n.testo for n in st.nodi if n.pkg == PKG and re.search(r'\d', n.testo)]
 
 
+def numeri_iniziali(volte=6):
+    """I numeri della schermata iniziale appena aperta: si aspetta che finisca l'animazione d'avvio e che
+    compaiano (come all'inizio dell'esplorazione), al massimo volte × 8 secondi."""
+    for _ in range(volte):
+        st = osserva()
+        n = numeri(st) if st.pkg == PKG else []
+        if n:
+            return n
+        time.sleep(8)
+    return []
+
+
 def persistenza_dalla_home(perche):
     """Ripiego quando non si riesce a tornare alla schermata di fine esplorazione (per esempio un filtro che l'app
     ricorda e che, rifacendo il percorso, si spegne): il controllo si fa sulla schermata iniziale, che si raggiunge
     sempre. I totali della collezione, chiusa e riaperta l'app, devono essere uguali."""
     log(f'  ({perche}: controllo la schermata iniziale)')
     avvia(freddo=True)
-    st = osserva()
-    if st.pkg != PKG:
-        log('  (l\'app non è in primo piano nemmeno da capo: salto)')
-        return
-    st = in_cima(st)
-    vivo = numeri(st)
+    vivo = numeri_iniziali()
     if not vivo:
-        log('  (nessun numero nella schermata iniziale: salto)')
+        log('  (nessun numero nella schermata iniziale, nemmeno aspettando: salto)')
         return
     adb('shell input keyevent 3')
     time.sleep(1)
     adb(f'shell am kill {PKG}')
     time.sleep(1)
     avvia()
-    dopo = numeri(in_cima(osserva()))
+    dopo = numeri_iniziali()
     if dopo != vivo:
         diff = [x for x in dopo if x not in vivo][:3] or [x for x in vivo if x not in dopo][:3]
         problema('errore', 'dati', 'schermata iniziale', f'dopo aver chiuso e riaperto l\'app i numeri cambiano: {diff}')
