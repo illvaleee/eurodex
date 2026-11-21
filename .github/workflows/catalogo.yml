@@ -54,11 +54,11 @@ jobs:
       cambi: ${{ steps.salva.outputs.cambi }}
       pubblica: ${{ steps.salva.outputs.pubblica }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
 
@@ -125,7 +125,7 @@ jobs:
 
       - name: Il commit dei dati per il job "pubblica"
         if: ${{ always() && steps.salva.outputs.cambi == 'si' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: catalogo-bundle
           path: ${{ runner.temp }}/catalogo.bundle
@@ -142,11 +142,11 @@ jobs:
     outputs:
       pubblicati: ${{ steps.dati.outputs.pubblicati }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Il commit dei dati dal job "scarica"
         if: ${{ needs.scarica.outputs.cambi == 'si' }}
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: catalogo-bundle
           path: ${{ runner.temp }}/bundle
@@ -223,7 +223,7 @@ jobs:
 
       - name: indice.json per il job della notifica
         if: ${{ steps.dati.outputs.pubblicati == 'si' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: indice-dati
           path: www/data/indice.json
@@ -243,11 +243,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: indice-dati
           path: dati-nuovi
