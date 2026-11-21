@@ -91,11 +91,17 @@ jobs:
           N: ${{ github.run_number }}
         run: |
           errori=0
+          # l'artifact viene da un job dove gira codice di terzi: niente di quello che contiene deve essere eseguito.
+          # La cartella di git sta fuori dall'artifact (una .git dentro l'artifact git non la aggiunge mai), con hook
+          # e fsmonitor spenti, e un artifact con collegamenti simbolici si scarta.
           salva() { # artifact, ramo, messaggio
-            [ -d "risultati/$1" ] || { echo "Niente risultati per il ramo $2"; return 0; }
-            (cd "risultati/$1" && git init -q -b "$2" && git add -A &&
-              { git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "$3" || true; } &&
-              git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$2") || errori=1
+            local dir="risultati/$1" gd="$RUNNER_TEMP/git-$2"
+            [ -d "$dir" ] || { echo "Niente risultati per il ramo $2"; return 0; }
+            [ -z "$(find "$dir" -type l -print -quit)" ] || { echo "::error::collegamenti simbolici nell'artifact $1: non lo salvo"; errori=1; return 0; }
+            g() { git --git-dir="$gd" --work-tree="$dir" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }
+            { g init -q -b "$2" && g add -A &&
+              { g -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "$3" || true; } &&
+              g push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$2"; } || errori=1
           }
           salva risultati-push prove-push "Prova push $N"
           exit $errori

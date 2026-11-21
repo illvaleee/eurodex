@@ -111,6 +111,10 @@ jobs:
     if: ${{ needs.controllo.outputs.serve == 'true' }}
     permissions:
       contents: read
+    # l'impronta dell'APK non firmato: gli output di un job li scrive solo quel job, quindi firma-e-pubblica può
+    # controllare che l'artifact che firma sia proprio questo (un artifact invece si può ricaricare da un altro job)
+    outputs:
+      apk: ${{ steps.apk.outputs.sha256 }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -175,6 +179,7 @@ jobs:
       # la compilazione è uguale su tutti i rami e NON usa la chiave vera: l'APK non firmato va a "firma-e-pubblica"
       # (solo main, con l'approvazione di Vale), quello firmato con una chiave di prova serve per le prove
       - name: APK non firmato (per la pubblicazione) e firmato con una chiave di prova (per le prove)
+        id: apk
         run: |
           BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
           "$BT/zipalign" -p -f 4 android/app/build/outputs/apk/release/app-release-unsigned.apk non-firmato.apk
@@ -183,6 +188,7 @@ jobs:
           "$BT/apksigner" sign --ks "$RUNNER_TEMP/prova.jks" --ks-key-alias prova --ks-pass pass:provaprova --out CollezioneEuro.apk non-firmato.apk
           "$BT/apksigner" verify CollezioneEuro.apk
           ls -lh non-firmato.apk CollezioneEuro.apk
+          echo "sha256=$(sha256sum non-firmato.apk | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -375,11 +381,17 @@ jobs:
           N: ${{ github.run_number }}
         run: |
           errori=0
+          # l'artifact viene da un job dove gira codice di terzi: niente di quello che contiene deve essere eseguito.
+          # La cartella di git sta fuori dall'artifact (una .git dentro l'artifact git non la aggiunge mai), con hook
+          # e fsmonitor spenti, e un artifact con collegamenti simbolici si scarta.
           salva() { # artifact, ramo, messaggio
-            [ -d "risultati/$1" ] || { echo "Niente risultati per il ramo $2"; return 0; }
-            (cd "risultati/$1" && git init -q -b "$2" && git add -A &&
-              { git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "$3" || true; } &&
-              git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$2") || errori=1
+            local dir="risultati/$1" gd="$RUNNER_TEMP/git-$2"
+            [ -d "$dir" ] || { echo "Niente risultati per il ramo $2"; return 0; }
+            [ -z "$(find "$dir" -type l -print -quit)" ] || { echo "::error::collegamenti simbolici nell'artifact $1: non lo salvo"; errori=1; return 0; }
+            g() { git --git-dir="$gd" --work-tree="$dir" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }
+            { g init -q -b "$2" && g add -A &&
+              { g -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "$3" || true; } &&
+              g push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$2"; } || errori=1
           }
           salva risultati-prove prove "Prova APK $N"
           salva risultati-esplorazione esplorazione "Esplorazione APK $N"
@@ -400,15 +412,25 @@ jobs:
     environment: pubblicazione
     permissions:
       contents: write
+    outputs:
+      version_json: ${{ steps.vj.outputs.sha256 }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.controllo.outputs.sha }}
+          persist-credentials: false
 
       - uses: actions/download-artifact@v4
         with:
           name: apk-non-firmato
+
+      - name: L'APK da firmare è proprio quello compilato da build
+        env:
+          ATTESA: ${{ needs.build.outputs.apk }}
+        run: |
+          [[ "$ATTESA" =~ ^[0-9a-f]{64}$ ]] || { echo "::error title=Firma::manca l'impronta dell'APK di build"; exit 1; }
+          echo "$ATTESA  non-firmato.apk" | sha256sum -c - || { echo "::error title=Firma::l'APK scaricato non è quello compilato da build: non lo firmo"; exit 1; }
 
       - name: Firma con la chiave vera
         env:
@@ -496,6 +518,10 @@ jobs:
           git push -f git@github.com:illvaleee/collezione-euro-download.git main
           rm -f "$RUNNER_TEMP/segreti/deploy"
 
+      - name: Impronta di version.json (la controlla il job della notifica)
+        id: vj
+        run: echo "sha256=$(sha256sum pub/version.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
       - name: version.json per il job della notifica
         uses: actions/upload-artifact@v4
         with:
@@ -504,12 +530,17 @@ jobs:
           retention-days: 7
 
       - name: Segna nel repository il numero di versione delle novità
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git fetch -q origin main && git checkout -q -B main origin/main
           python3 scripts/numera-novita.py ${{ needs.controllo.outputs.n }}
           if ! git diff --quiet -- www/novita.json; then
             git -c user.name=eurodex -c user.email=eurodex@users.noreply.github.com commit -qm "Novità: numero di versione 1.0.${{ needs.controllo.outputs.n }} [skip ci]" -- www/novita.json
-            for i in 1 2 3; do git push -q origin main && break; git pull -q --rebase origin main; done
+            for i in 1 2 3; do
+              git push -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main && break
+              git pull -q --rebase origin main
+            done
           fi
 
       - name: Via i file dei segreti
@@ -537,6 +568,13 @@ jobs:
         with:
           name: version-json
           path: pub
+
+      - name: version.json è quello scritto da firma-e-pubblica
+        env:
+          ATTESA: ${{ needs.firma-e-pubblica.outputs.version_json }}
+        run: |
+          [[ "$ATTESA" =~ ^[0-9a-f]{64}$ ]] || { echo "::error title=Notifica::manca l'impronta di version.json"; exit 1; }
+          echo "$ATTESA  pub/version.json" | sha256sum -c -
 
       # prima i pacchetti (versioni e impronte fisse), poi la chiave: pip non gira mai con la chiave su disco
       - name: Strumenti per la notifica
@@ -628,11 +666,17 @@ jobs:
           N: ${{ github.run_number }}
         run: |
           errori=0
+          # l'artifact viene da un job dove gira codice di terzi: niente di quello che contiene deve essere eseguito.
+          # La cartella di git sta fuori dall'artifact (una .git dentro l'artifact git non la aggiunge mai), con hook
+          # e fsmonitor spenti, e un artifact con collegamenti simbolici si scarta.
           salva() { # artifact, ramo, messaggio
-            [ -d "risultati/$1" ] || { echo "Niente risultati per il ramo $2"; return 0; }
-            (cd "risultati/$1" && git init -q -b "$2" && git add -A &&
-              { git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "$3" || true; } &&
-              git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$2") || errori=1
+            local dir="risultati/$1" gd="$RUNNER_TEMP/git-$2"
+            [ -d "$dir" ] || { echo "Niente risultati per il ramo $2"; return 0; }
+            [ -z "$(find "$dir" -type l -print -quit)" ] || { echo "::error::collegamenti simbolici nell'artifact $1: non lo salvo"; errori=1; return 0; }
+            g() { git --git-dir="$gd" --work-tree="$dir" -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"; }
+            { g init -q -b "$2" && g add -A &&
+              { g -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "$3" || true; } &&
+              g push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$2"; } || errori=1
           }
           salva risultati-aggiornamento prove-aggiornamento "Prova aggiornamento $N"
           exit $errori
