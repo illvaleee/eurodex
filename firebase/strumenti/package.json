@@ -1,0 +1,8 @@
+{
+  "name": "eurodex-strumenti-firebase",
+  "private": true,
+  "description": "Solo per installare il server della sincronizzazione (sincronizzazione.yml): firebase-tools a versione fissa, con il lockfile",
+  "devDependencies": {
+    "firebase-tools": "15.36.0"
+  }
+}

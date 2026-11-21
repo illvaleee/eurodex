@@ -51,8 +51,8 @@ jobs:
         with:
           node-version: 22
 
-      - name: Dipendenze
-        run: npm install --no-audit --no-fund
+      - name: Dipendenze (esattamente quelle del package-lock.json)
+        run: npm ci --no-audit --no-fund
 
       - name: Copia del catalogo attuale (per il confronto)
         run: cp www/data/catalog.json /tmp/catalogo-prima.json
@@ -118,7 +118,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/segreti"
           printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/segreti/deploy"
           umask 022
-          mkdir -p ~/.ssh && ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          # chiave pubblica di github.com come la pubblica GitHub (SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU),
+          # scritta qui invece di fidarsi della prima risposta di ssh-keyscan
+          mkdir -p ~/.ssh && echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' >> ~/.ssh/known_hosts
           export GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/segreti/deploy -o IdentitiesOnly=yes"
           for i in 1 2 3; do
             rm -rf /tmp/dl && git clone -q --depth 1 git@github.com:illvaleee/collezione-euro-download.git /tmp/dl
@@ -141,10 +143,11 @@ jobs:
         env:
           FIREBASE_INVIO_JSON: ${{ secrets.FIREBASE_INVIO_JSON }}
         run: |
+          # prima i pacchetti (versioni e impronte fisse), poi la chiave: pip non gira mai con la chiave su disco
+          pip install --quiet --require-hashes -r scripts/requisiti-google.txt
           umask 077
           mkdir -p "$RUNNER_TEMP/segreti"
           printf '%s' "$FIREBASE_INVIO_JSON" > "$RUNNER_TEMP/segreti/firebase.json"
-          pip install --quiet google-auth requests
           FIREBASE_SA_FILE="$RUNNER_TEMP/segreti/firebase.json" python3 scripts/invia-avviso.py www/data/indice.json --dati
 
       - name: Via i file dei segreti

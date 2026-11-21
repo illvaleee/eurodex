@@ -19,6 +19,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Ultima versione pubblicata (quella della pagina di download)
         run: curl -fsSL https://raw.githubusercontent.com/illvaleee/collezione-euro-download/main/CollezioneEuro.apk -o app.apk
@@ -29,18 +31,23 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Chiave di Firebase (fuori dal progetto) e strumenti per la notifica
+      # prima i pacchetti (versioni e impronte fisse), poi la chiave: pip non gira mai con la chiave su disco
+      - name: Strumenti per la notifica
+        run: pip install --quiet --require-hashes -r scripts/requisiti-google.txt
+
+      - name: Chiave di Firebase (fuori dal progetto)
         env:
           FIREBASE_INVIO_JSON: ${{ secrets.FIREBASE_INVIO_JSON }}
         run: |
           umask 077
           mkdir -p "$RUNNER_TEMP/segreti"
           printf '%s' "$FIREBASE_INVIO_JSON" > "$RUNNER_TEMP/segreti/firebase.json"
-          pip install --quiet google-auth requests
           echo "FIREBASE_SA_FILE=$RUNNER_TEMP/segreti/firebase.json" >> "$GITHUB_ENV"
 
+      # l'action dell'emulatore gira con la chiave di Firebase su disco (serve alla prova): per questo è fissata a un
+      # commit preciso e non a un'etichetta che si può spostare
       - name: Prova della notifica immediata
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 34
           target: google_apis
@@ -52,11 +59,13 @@ jobs:
 
       - name: Salva i risultati
         if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p prove-push && cd prove-push
           git init -q -b prove-push && git add -A
           git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Prova push ${{ github.run_number }}" || true
-          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" prove-push
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" prove-push
 
       - name: Via i file dei segreti
         if: always()

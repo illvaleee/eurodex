@@ -22,15 +22,18 @@ jobs:
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: App da esplorare
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSIONE: ${{ inputs.versione }}
         run: |
-          if [ -n "${{ inputs.versione }}" ]; then
-            gh release download "${{ inputs.versione }}" -R ${{ github.repository }} -p CollezioneEuro.apk -O app.apk
+          if [ -n "$VERSIONE" ]; then
+            gh release download "$VERSIONE" -R "$GITHUB_REPOSITORY" -p CollezioneEuro.apk -O app.apk
           else
-            gh release download -R ${{ github.repository }} -p CollezioneEuro.apk -O app.apk
+            gh release download -R "$GITHUB_REPOSITORY" -p CollezioneEuro.apk -O app.apk
           fi
           ls -l app.apk
 
@@ -40,11 +43,16 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Strumenti
-        run: pip install --quiet pillow
+      - name: Strumenti, e minuti di esplorazione (solo un numero)
+        env:
+          MINUTI: ${{ inputs.minuti || '30' }}
+        run: |
+          pip install --quiet pillow
+          [[ "$MINUTI" =~ ^[0-9]{1,3}$ ]] || { echo "::error::minuti non validi: deve essere un numero"; exit 1; }
+          echo "MINUTI=$MINUTI" >> "$GITHUB_ENV"
 
       - name: Esplorazione
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 34
           target: google_apis
@@ -54,12 +62,15 @@ jobs:
           ram-size: 4096M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: adb install -r app.apk && python3 prove/esploratore.py it.collezione.euro esplorazione ${{ inputs.minuti || '30' }}
+          script: adb install -r app.apk && python3 prove/esploratore.py it.collezione.euro esplorazione "$MINUTI"
 
       - name: 'Risultati sul ramo esplorazione (resoconto, diario e schermate)'
         if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSIONE: ${{ inputs.versione || 'ultima' }}
         run: |
           mkdir -p esplorazione && cd esplorazione
           git init -q -b esplorazione && git add -A
-          git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Esplorazione ${{ inputs.versione || 'ultima' }}" || true
-          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" esplorazione
+          git -c user.name=prova -c user.email=prova@users.noreply.github.com commit -qm "Esplorazione $VERSIONE" || true
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" esplorazione
