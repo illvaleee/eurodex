@@ -69,7 +69,7 @@ exports.cambioDiStato = onDocumentUpdated({ ...OPZIONI, document: 'accessi/{uid}
   if (azioni.includes('avvisa_approvato')) {
     await mandaAiDispositivi(uid, {
       notification: { title: 'Eurodex', body: "Accesso approvato: puoi usare l'app" },
-      data: { tipo: 'approvato' },
+      data: { tipo: 'approvato', eurodex_azione: 'accesso' },
     });
   }
 });

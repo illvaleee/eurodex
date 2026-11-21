@@ -1,11 +1,13 @@
 """Regole dell'accesso solo su approvazione (firebase/firestore.rules), provate sugli emulatori di Firebase come le
 proverebbe chi prova a forzarle: richieste fatte a mano con il gettone di un utente, come farebbe un'app modificata.
-Prima con l'accesso non ancora obbligatorio (passo 1 del passaggio: tutto come prima), poi obbligatorio (passo 4).
+Prima con il muro spento (tutto come prima), poi acceso da Valerio con l'interruttore (config/accesso), poi di nuovo
+spento.
 Si avvia dentro gli emulatori:
   firebase emulators:exec --only auth,firestore --project collezione-euro-24ecd "python3 prove/regole-accesso.py"
 """
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 
@@ -24,8 +26,11 @@ def ok(c, m):
 
 
 def http(metodo, url, corpo=None, chi='owner'):
+    intestazioni = {'Content-Type': 'application/json'}
+    if chi:   # chi='' vuol dire senza accesso (nessun gettone)
+        intestazioni['Authorization'] = f'Bearer {chi}'
     req = urllib.request.Request(url, method=metodo, data=json.dumps(corpo).encode() if corpo is not None else None,
-                                 headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {chi}'})
+                                 headers=intestazioni)
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             return r.status, json.loads(r.read() or b'{}')
@@ -55,13 +60,12 @@ def gettone_senza_firma(uid, email, verificata, metodo='google.com'):
     return f"{b({'alg': 'none', 'typ': 'JWT'})}.{b(corpo)}."
 
 
-def carica_regole(admin_uid, obbligatorio):
+def carica_regole(admin_uid):
+    """Le regole vere, con l'UID di Valerio sostituito da quello dell'utente di prova che fa da Valerio."""
     testo = open(REGOLE, encoding='utf-8').read()
-    assert "'UID_DI_VALERIO'" in testo and 'function accessoObbligatorio() { return false; }' in testo
-    testo = testo.replace("'UID_DI_VALERIO'", f"'{admin_uid}'")
-    if obbligatorio:
-        testo = testo.replace('function accessoObbligatorio() { return false; }',
-                              'function accessoObbligatorio() { return true; }')
+    vero = re.findall(r"request\.auth\.uid == '([A-Za-z0-9]{20,40})'", testo)
+    assert len(vero) == 1, f'UID di Valerio nelle regole: {vero}'
+    testo = testo.replace(f"'{vero[0]}'", f"'{admin_uid}'")
     st, _ = http('PUT', f'http://127.0.0.1:8080/emulator/v1/projects/{P}:securityRules',
                  {'rules': {'files': [{'name': 'firestore.rules', 'content': testo}]}})
     assert st == 200, f'regole non caricate ({st})'
@@ -107,9 +111,24 @@ VAL, t_val = utente('valerio', 'valerio@example.com')
 MAR, t_mar = utente('mario', 'mario@example.com')
 LUC, t_luc = utente('lucia', 'lucia@example.com')
 
-print('— Accesso non ancora obbligatorio (passo 1: tutto come prima) —')
-carica_regole(VAL, obbligatorio=False)
-ok(scrivi(t_mar, f'collezioni/{MAR}/voci/f', {'e': {}}) == 200, 'chi non è approvato usa ancora la sincronizzazione')
+print('— Muro spento: tutto come prima —')
+carica_regole(VAL)
+ok(scrivi(t_mar, f'collezioni/{MAR}/voci/f', {'e': {}}) == 200,
+   'senza il documento dell\'interruttore chi non è approvato usa ancora la sincronizzazione')
+
+print('— L\'interruttore del muro (config/accesso) —')
+ok(leggi('', 'config/accesso') in (200, 404), 'l\'interruttore si legge anche senza accesso (dice solo sì o no)')
+ok(scrivi(t_mar, 'config/accesso', {'obbligatorio': True}, ora=['cambiato']) == 403, 'Mario non accende il muro')
+ok(scrivi('', 'config/accesso', {'obbligatorio': True}, ora=['cambiato']) == 403, 'senza accesso nemmeno')
+ok(scrivi(t_val, 'config/accesso', {'obbligatorio': False}) == 403, 'anche per Valerio la data la mette il server')
+ok(scrivi(t_val, 'config/accesso', {'obbligatorio': 'sì'}, ora=['cambiato']) == 403, 'solo sì o no (booleano)')
+ok(scrivi(t_val, 'config/accesso', {'obbligatorio': False, 'chi': 'x'}, ora=['cambiato']) == 403, 'niente campi in più')
+ok(scrivi(gettone_senza_firma(VAL, 'valerio@example.com', False), 'config/accesso', {'obbligatorio': False},
+          ora=['cambiato']) == 403, 'senza email verificata nemmeno l\'account di Valerio')
+ok(scrivi(t_val, 'config/accesso', {'obbligatorio': False}, ora=['cambiato']) == 200, 'Valerio scrive l\'interruttore spento')
+ok(leggi('', 'config/accesso') == 200 and leggi(t_mar, 'config/accesso') == 200, 'e tutti lo leggono')
+ok(http('GET', f'{FS}/config', chi=t_val)[0] == 403, 'la raccolta config non si elenca')
+ok(scrivi(t_mar, f'collezioni/{MAR}/voci/f', {'e': {}}) == 200, 'muro spento: Mario sincronizza come prima')
 ok(scrivi(t_mar, f'accessi/{MAR}', richiesta('mario@example.com', stato='approvato'), ora=['richiesta'], esiste=False) == 403,
    'nessuno si approva da solo nella richiesta')
 ok(scrivi(t_mar, f'accessi/{LUC}', richiesta('mario@example.com'), ora=['richiesta'], esiste=False) == 403,
@@ -165,8 +184,8 @@ ok(scrivi(t_val, f'accessi/{VAL}', richiesta('valerio@example.com', nome='Valeri
    and scrivi(t_val, f'accessi/{VAL}', {'stato': 'approvato'}, ora=['decisione'], esiste=True, maschera=['stato', 'decisione']) == 200,
    'Valerio approva anche sé stesso')
 
-print('— Accesso obbligatorio (passo 4) —')
-carica_regole(VAL, obbligatorio=True)
+print('— Muro acceso da Valerio —')
+ok(scrivi(t_val, 'config/accesso', {'obbligatorio': True}, ora=['cambiato']) == 200, 'Valerio accende il muro')
 ok(scrivi(t_mar, f'collezioni/{MAR}/voci/f', {'e': {}}) == 200 and leggi(t_mar, f'collezioni/{MAR}/voci/f') == 200,
    'Mario (approvato) sincronizza')
 ok(leggi(t_mar, f'collezioni/{LUC}/voci/f') == 403, 'Mario non legge la collezione di Lucia')
@@ -190,6 +209,24 @@ ok(leggi(t_mar, f'collezioni/{MAR}/voci/f') == 403 and scrivi(t_mar, f'collezion
 ok(leggi(t_mar, f'accessi/{MAR}/dispositivi/telefono-mario') == 403, 'e Mario non vede più nemmeno i suoi dispositivi')
 ok(scrivi(t_val, f'accessi/{MAR}', {'stato': 'approvato'}, ora=['decisione'], esiste=True, maschera=['stato', 'decisione']) == 200
    and leggi(t_mar, f'collezioni/{MAR}/voci/f') == 200, 'Valerio ci ripensa: Mario torna dentro')
+
+print('— Chi aspetta la risposta registra il telefono (per sapere quando è approvato) —')
+UGO, t_ugo = utente('ugo', 'ugo@example.com')
+ok(scrivi(t_ugo, f'accessi/{UGO}/dispositivi/telefono-ugo', {'token': 'abc', 'nome': 'Pixel'}, ora=['aggiornato']) == 403,
+   'senza richiesta no')
+ok(scrivi(t_ugo, f'accessi/{UGO}', richiesta('ugo@example.com', nome='Ugo'), ora=['richiesta'], esiste=False) == 200,
+   'Ugo chiede l\'accesso col muro acceso')
+ok(scrivi(t_ugo, f'accessi/{UGO}/dispositivi/telefono-ugo', {'token': 'abc', 'nome': 'Pixel'}, ora=['aggiornato']) == 200,
+   'in attesa registra il suo telefono')
+ok(scrivi(t_ugo, f'collezioni/{UGO}/voci/f', {'e': {}}) == 403, 'ma non usa la sincronizzazione finché non è approvato')
+ok(scrivi(t_mar, f'accessi/{UGO}/dispositivi/telefono-mario', {'token': 'abc', 'nome': 'Pixel'}, ora=['aggiornato']) == 403,
+   'nessuno registra telefoni nella richiesta di un altro')
+
+print('— Valerio spegne il muro: tutto come prima —')
+ok(scrivi(t_val, 'config/accesso', {'obbligatorio': False}, ora=['cambiato']) == 200, 'Valerio spegne il muro')
+ok(scrivi(t_luc, f'collezioni/{LUC}/voci/f', {'e': {}}) == 200, 'anche Lucia (rifiutata) torna a sincronizzare')
+ok(scrivi(t_val, 'config/accesso', {'obbligatorio': True}, ora=['cambiato']) == 200
+   and scrivi(t_luc, f'collezioni/{LUC}/voci/f', {'e': {}}) == 403, 'riacceso: Lucia di nuovo fuori, subito')
 
 print('RISULTATO:', 'TUTTO OK' if not fallite else f'{len(fallite)} PROBLEMI')
 raise SystemExit(1 if fallite else 0)

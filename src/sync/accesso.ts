@@ -24,7 +24,7 @@ export type Decisione = Exclude<StatoAccesso, 'nessuno'>;
 const STATI: readonly Decisione[] = ['in_attesa', 'approvato', 'rifiutato', 'revocato'];
 
 /** L'amministratore, lo stesso UID delle regole: qui serve solo a mostrargli la sua sezione, non autorizza niente. */
-export const UID_AMMINISTRATORE = 'UID_DI_VALERIO';
+export const UID_AMMINISTRATORE = 'AkUbMzxnXwgjinx9fMaWw6NBAlM2';
 export const eAmministratore = (uid: string | null | undefined): boolean => !!uid && uid === UID_AMMINISTRATORE;
 
 export interface Richiesta {

@@ -43,7 +43,8 @@ function messaggioRichiesta(uid, r) {
   const corpo = [email, nome].filter(Boolean).join(' · ') || 'Qualcuno';
   return {
     notification: { title: 'Richiesta di accesso a Eurodex', body: corpo },
-    data: { tipo: 'accesso', uid: String(uid) },
+    // eurodex_azione: toccando la notifica l'app apre la sezione di Valerio con le richieste
+    data: { tipo: 'accesso', uid: String(uid), eurodex_azione: 'accessi' },
     android: { priority: 'high', ttl: 7 * 24 * 3600 * 1000 },
   };
 }

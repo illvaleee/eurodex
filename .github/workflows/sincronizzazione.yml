@@ -76,7 +76,7 @@ jobs:
           (cd firebase/functions && npm ci --no-audit --no-fund --silent)
           firebase/strumenti/node_modules/.bin/firebase --version
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           distribution: temurin
           java-version: 21

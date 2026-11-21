@@ -33,7 +33,7 @@ test('token: solo quelli validi, senza doppioni', () => {
 test("richiesta di accesso: prima l'email vera, poi il nome, senza caratteri di controllo o di direzione", () => {
   const m = L.messaggioRichiesta('uid1', { nome: 'Mario', email: 'mario@example.com' });
   assert.equal(m.notification.body, 'mario@example.com · Mario');
-  assert.deepEqual(m.data, { tipo: 'accesso', uid: 'uid1' });
+  assert.deepEqual(m.data, { tipo: 'accesso', uid: 'uid1', eurodex_azione: 'accessi' });
   const finto = L.messaggioRichiesta('u', { nome: 'Mamma\u202e (x)\n', email: 'sconosciuto@example.com' });
   assert.equal(finto.notification.body, 'sconosciuto@example.com · Mamma (x)');
   assert.equal(L.messaggioRichiesta('u', { nome: 'n'.repeat(300), email: '' }).notification.body.length, 80);
