@@ -277,8 +277,8 @@ Va deciso dove vive la sessione:
 - **Firebase Auth nativo**, condiviso con la parte web tramite un plugin di Capacitor;
 - oppure la **parte web passa i gettoni**: in quel caso in background si scarica solo finché il gettone è valido.
 
-**Proposta (Claude 2, d'accordo Claude 1; manca Claude 3): Firebase Auth nativo come sessione principale, nel nostro
-plugin nativo e non con un plugin di Capacitor di terzi.**
+**Deciso (Claude 2, Claude 3 e Claude 1): Firebase Auth nativo come sessione principale, nel nostro plugin nativo
+(`NativoPlugin`, che con Credential Manager prende già il gettone Google) e non con un plugin di Capacitor di terzi.**
 - Il gettone Google ID di Credential Manager (`androidx.credentials` e `googleid` ci sono già) serve per due accessi:
   `FirebaseAuth.signInWithCredential(GoogleAuthProvider.getCredential(idToken, null))` nella parte nativa e
   `signInWithCredential` nell'SDK JS. Se si usa un nonce, è lo stesso per tutti e due.
@@ -291,6 +291,8 @@ plugin nativo e non con un plugin di Capacitor di terzi.**
   rinnoviamo a mano, cioè proprio la parte più delicata da scrivere da soli.
 - **Perché non un plugin di terzi**: sarebbe un pacchetto in più dentro l'APK firmato, mentre il nostro plugin ha già
   Credential Manager e la parte nuova è piccola.
+- **Da provare sul telefono vero** (Claude 3): che lo stesso gettone Google valga per tutti e due gli accessi, nella sua
+  ora; quanto cresce l'APK con le due librerie native.
 
 ### 9.5 Richieste: il nome non è affidabile (fatto in #8)
 
