@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { decidiMuro, indirizzoConfig, obbligoDaDocumento, pulitoPerRichiesta } from '../src/sync/muro-logica';
+import {
+  arrivato,
+  decidiMuro,
+  esitoTentativo,
+  FINESTRA_PRESTO,
+  indirizzoConfig,
+  obbligoDaDocumento,
+  pulitoPerRichiesta,
+} from '../src/sync/muro-logica';
 
 describe('muro: cosa vede chi apre l’app', () => {
   const base = { obbligo: true, uid: 'abc', admin: false, stato: 'nessuno' as const };
@@ -69,5 +77,29 @@ describe('muro: nome e telefono nella richiesta', () => {
     expect(pulitoPerRichiesta('Mario‮\nRossi')).toBe('MarioRossi');
     expect(pulitoPerRichiesta('x'.repeat(100))).toHaveLength(80);
     expect(pulitoPerRichiesta('Lucìa Pérez 🪙')).toBe('Lucìa Pérez 🪙');
+  });
+});
+
+describe('muro: come finisce un tentativo di accesso', () => {
+  it('rimandato (già scritto) conta come scritto; senza rete non è scritto', () => {
+    expect(esitoTentativo('already-exists', Infinity)).toBe('ok');
+    expect(esitoTentativo(undefined, 0)).toBe('no');
+    expect(esitoTentativo('unavailable', 0)).toBe('no');
+    expect(esitoTentativo('deadline-exceeded', 0)).toBe('no');
+  });
+  it('rifiutato dalle regole: «troppo presto» solo poco dopo un tentativo scritto da questa app', () => {
+    expect(esitoTentativo('permission-denied', 3000)).toBe('presto');
+    expect(esitoTentativo('permission-denied', FINESTRA_PRESTO - 1)).toBe('presto');
+    // più tardi (o mai scritto da qui: sessione non più valida, regola cambiata) non è arrivato niente
+    expect(esitoTentativo('permission-denied', FINESTRA_PRESTO)).toBe('rifiutato');
+    expect(esitoTentativo('permission-denied', Date.now())).toBe('rifiutato');
+  });
+  it('arrivato: scritto adesso o pochi secondi fa', () => {
+    expect([arrivato('ok'), arrivato('presto'), arrivato('rifiutato'), arrivato('no')]).toEqual([
+      true,
+      true,
+      false,
+      false,
+    ]);
   });
 });

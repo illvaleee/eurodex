@@ -59,3 +59,26 @@ export const pulitoPerRichiesta = (x: string): string =>
     .replace(/[@\p{Cc}\p{Cf}]/gu, '')
     .trim()
     .slice(0, 80);
+
+/** Come finisce un tentativo di accesso, dal codice dell'errore di Firestore (nessun errore: scritto). */
+export type EsitoTentativo = 'ok' | 'presto' | 'rifiutato' | 'no';
+
+/** Entro quanto dall'ultimo tentativo scritto da questa app un rifiuto delle regole vuol dire «troppo presto». */
+export const FINESTRA_PRESTO = 30 * 1000;
+
+/**
+ * - `already-exists`: è la stessa scrittura rimandata (l'accesso rifatto subito dopo dalla sincronizzazione), quindi c'è;
+ * - `permission-denied` entro `FINESTRA_PRESTO` dall'ultimo tentativo scritto da questa app: le regole ne accettano uno
+ *   ogni 20 secondi per account, e quello di prima c'è (Valerio lo vede). Più tardi è un altro rifiuto (per esempio la
+ *   sessione non più valida dopo una revoca, o una regola cambiata): non è arrivato niente, e non lo si dice arrivato
+ *   (revisione di Claude 3 su #18);
+ * - il resto (per esempio senza rete): non scritto.
+ */
+export function esitoTentativo(codice: unknown, dallUltimoScritto: number): EsitoTentativo {
+  if (codice === 'already-exists') return 'ok';
+  if (codice === 'permission-denied') return dallUltimoScritto < FINESTRA_PRESTO ? 'presto' : 'rifiutato';
+  return 'no';
+}
+
+/** Il tentativo è arrivato: scritto adesso, oppure c'è quello di pochi secondi fa. */
+export const arrivato = (r: EsitoTentativo): boolean => r === 'ok' || r === 'presto';

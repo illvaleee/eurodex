@@ -4,7 +4,7 @@ import { applicaSfondo, fotoPerBackup, prendi, scegliFoto } from './ui/sfondo';
 import * as collezione from './collezione/stato';
 import { nativo } from './nativo/plugin';
 import * as sync from './sync/sincronizzazione';
-import { aggiornaMuro, muroAperto } from './sync/muro';
+import { aggiornaMuro, muroAperto, muroPerLeProve } from './sync/muro';
 import { chiudiFoglio } from './ui/foglio';
 import { tornaIndietro } from './ui/azioni';
 import { avviso } from './ui/avvisi';
@@ -55,7 +55,7 @@ export function esponiPerLeProve(): void {
     },
     reteSync: sync.reteSyncProva,
     // il muro dell'accesso su approvazione: rilettura dell'interruttore (come al ritorno nell'app) e stato
-    muro: { aggiorna: aggiornaMuro, aperto: muroAperto },
+    muro: { aggiorna: aggiornaMuro, aperto: muroAperto, ...muroPerLeProve },
     salva: collezione.salva,
     sostituisci: collezione.sostituisci,
     tornaIndietro,

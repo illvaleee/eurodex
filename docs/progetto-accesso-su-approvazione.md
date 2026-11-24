@@ -379,8 +379,13 @@ diverse di §4 e §9.
 - **Notifiche a Valerio:** al massimo una al minuto per account, anche per chi ritenta dopo un rifiuto. È la scelta
   di Valerio del 24/11, fatta sapendo che chi insiste può mandarne una al minuto. I tentativi restano contati
   nell'elenco.
-- **Dopo la pubblicazione** (revisione di Claude 2, d'accordo): un tentativo ogni 20 secondi per account, con la
-  regola `!conRichiesta(uid) || request.time > ultimoTentativo + 20s`. È un limite di costo, non di sicurezza.
+- **Un tentativo ogni 20 secondi per account** (revisione di Claude 2; dopo la 1.0.82). È un limite di costo, non di
+  sicurezza:
+  - la regola `tentativoRecente` rifiuta un tentativo arrivato meno di 20 secondi dopo `ultimoTentativo`, il campo che
+    scrive la funzione. Una richiesta senza quel campo conta come vecchia; un account senza richiesta non ha limite;
+  - se il server rifiuta perché è troppo presto, l'app dice «Richiesta già inviata ✓ Valerio la vede», perché il
+    tentativo di prima c'è, e non «sei connesso a internet?». Con la 1.0.82 resta la frase vecchia, solo per chi
+    ripreme entro 20 secondi da un altro tentativo.
 
 ### 10.4 La sezione di Valerio e la schermata di accesso
 - **Sezione di Valerio:** contiene tutti gli account che hanno fatto l'accesso, divisi in in attesa, approvati e non
