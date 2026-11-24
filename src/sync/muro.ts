@@ -94,6 +94,10 @@ const firebase = () => import('./firebase');
 export const muroAperto = (): boolean => esito !== 'aperto';
 /** L'interruttore come lo conosce l'app adesso (per la sezione di Valerio). */
 export const muroAcceso = (): boolean => acceso();
+/** L'interruttore com'è sul server, senza la forzatura delle prove: per la sezione di Valerio, che lo cambia. */
+export const muroAccesoSulServer = (): boolean => obbligo;
+/** Le prove automatiche via adb (`debug.eurodex.prove=1`): niente cose che decidono per qualcun altro. */
+export const inProvaAutomatica = async (): Promise<boolean> => (await prove()).prove;
 
 function ricordaObbligo(v: boolean): void {
   obbligo = v;
