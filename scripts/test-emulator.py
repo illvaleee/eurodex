@@ -742,19 +742,33 @@ back()
 adb('shell cmd uimode night yes')
 time.sleep(3)
 adb(f'shell am force-stop {PKG}')
-launch(8)
+aperta = launch(8)
 chiudi_fogli()   # (una volta sola compare la proposta di accedere con Google: "Non ora")
 shot('scuro_home')
 try:
     from PIL import Image
     im = Image.open(os.path.join(OUT, f'{N[0]:02d}_scuro_home.png')).convert('RGB')
-    # il colore più frequente nella riga della barra in basso (un punto solo può cadere sull'icona di una scheda)
-    from collections import Counter
-    riga = [im.getpixel((x, int(im.height * 0.93))) for x in range(0, im.width, 3)]
-    px = Counter(riga).most_common(1)[0][0]
-    check(sum(px) / 3 < 80, f'modalità scura: lo sfondo diventa scuro (colore {px})')
+
+    def luci(y):
+        # luminosità dei punti di una riga (uno ogni 3), dal più scuro al più chiaro
+        return sorted(sum(im.getpixel((x, y))) / 3 for x in range(0, im.width, 3))
+
+    # Conta la luminosità mediana, non il colore più frequente. Le scritte e le icone delle schede occupano meno di
+    # metà della riga, ma con la barra sfocata (PR #12) lo sfondo non è più un colore solo: sono tante sfumature
+    # quasi uguali, e ognuna da sola perdeva contro il grigio delle scritte («colore (138, 145, 156)» sulla 1.0.82,
+    # con l'app scura).
+    basso = luci(int(im.height * 0.93))   # barra delle schede, all'altezza delle scritte
+    alto = luci(int(im.height * 0.085))   # barra del titolo
+    mb, ma = basso[len(basso) // 2], alto[len(alto) // 2]
+    # le scritte delle schede devono vedersi: una schermata tutta scura (l'animazione d'apertura, uno schermo nero)
+    # non dice niente sulla modalità scura dell'app
+    scritte = sum(1 for v in basso if v > 100)
+    chiusa = '' if aperta else "; l'app non risulta aperta"
+    check(aperta and mb < 80 and ma < 80 and scritte >= 10,
+          f'modalità scura: lo sfondo diventa scuro (luminosità mediana: barra in basso {mb:.0f}, in alto {ma:.0f}; '
+          f'punti chiari delle scritte delle schede: {scritte}{chiusa})')
 except Exception as e:
-    note('controllo colore non riuscito: ' + str(e))
+    check(False, 'modalità scura: controllo del colore non riuscito: ' + str(e))
 tap('Catalogo', exact=True, required=False)
 tap('Italia', required=False, scroll=8)
 shot('scuro_italia')
