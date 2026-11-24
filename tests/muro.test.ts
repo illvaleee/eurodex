@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  arrivato,
   decidiMuro,
   esitoTentativo,
+  FINESTRA_PRESTO,
   indirizzoConfig,
   obbligoDaDocumento,
   pulitoPerRichiesta,
@@ -79,11 +81,25 @@ describe('muro: nome e telefono nella richiesta', () => {
 });
 
 describe('muro: come finisce un tentativo di accesso', () => {
-  it('rimandato (già scritto) conta come scritto; troppo presto (limite di 20 secondi) non è un errore di rete', () => {
-    expect(esitoTentativo(undefined)).toBe('no');
-    expect(esitoTentativo('already-exists')).toBe('ok');
-    expect(esitoTentativo('permission-denied')).toBe('presto');
-    expect(esitoTentativo('unavailable')).toBe('no');
-    expect(esitoTentativo('deadline-exceeded')).toBe('no');
+  it('rimandato (già scritto) conta come scritto; senza rete non è scritto', () => {
+    expect(esitoTentativo('already-exists', Infinity)).toBe('ok');
+    expect(esitoTentativo(undefined, 0)).toBe('no');
+    expect(esitoTentativo('unavailable', 0)).toBe('no');
+    expect(esitoTentativo('deadline-exceeded', 0)).toBe('no');
+  });
+  it('rifiutato dalle regole: «troppo presto» solo poco dopo un tentativo scritto da questa app', () => {
+    expect(esitoTentativo('permission-denied', 3000)).toBe('presto');
+    expect(esitoTentativo('permission-denied', FINESTRA_PRESTO - 1)).toBe('presto');
+    // più tardi (o mai scritto da qui: sessione non più valida, regola cambiata) non è arrivato niente
+    expect(esitoTentativo('permission-denied', FINESTRA_PRESTO)).toBe('rifiutato');
+    expect(esitoTentativo('permission-denied', Date.now())).toBe('rifiutato');
+  });
+  it('arrivato: scritto adesso o pochi secondi fa', () => {
+    expect([arrivato('ok'), arrivato('presto'), arrivato('rifiutato'), arrivato('no')]).toEqual([
+      true,
+      true,
+      false,
+      false,
+    ]);
   });
 });
