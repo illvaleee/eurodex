@@ -59,6 +59,24 @@ function scrivi(k: string, v: string | null): void {
 }
 
 let obbligo = leggi(LS) === '1';
+/** `debug.eurodex.muro=acceso` (solo le prove, via adb): il muro vale acceso su questo telefono, qualunque cosa dica il
+ * server. Può solo chiudere, mai aprire. */
+let forzato = false;
+/** L'interruttore che vale su questo telefono. */
+const acceso = (): boolean => obbligo || forzato;
+/**
+ * Le prove automatiche (§9.7 B), sul telefono simulato della CI o su uno collegato con adb, che è l'unico a poter
+ * scrivere le proprietà `debug.*`: con `debug.eurodex.prove=1` la schermata del muro non si mostra, e tutto il resto
+ * (indirizzi, regole, sincronizzazione) resta vero. Nel browser non ci sono.
+ */
+let modoProve: Promise<{ prove: boolean; muro: string }> | null = null;
+function prove(): Promise<{ prove: boolean; muro: string }> {
+  modoProve ??= nativo()
+    ? Nativo.modoProve().catch(() => ({ prove: false, muro: '' }))
+    : Promise.resolve({ prove: false, muro: '' });
+  return modoProve;
+}
+let senzaSchermata = false;
 let esito: EsitoMuro = 'aperto';
 let utente: { uid: string; email: string; nome: string } | null = null;
 let statoAccesso: StatoAccesso = 'nessuno';
@@ -75,7 +93,7 @@ const firebase = () => import('./firebase');
 /** Il muro è sullo schermo (il tasto indietro di Android allora chiude l'app invece di andare dietro). */
 export const muroAperto = (): boolean => esito !== 'aperto';
 /** L'interruttore come lo conosce l'app adesso (per la sezione di Valerio). */
-export const muroAcceso = (): boolean => obbligo;
+export const muroAcceso = (): boolean => acceso();
 
 function ricordaObbligo(v: boolean): void {
   obbligo = v;
@@ -84,6 +102,9 @@ function ricordaObbligo(v: boolean): void {
 
 /** L'interruttore letto dal server, senza accesso e senza caricare Firebase. Senza rete resta quello di prima. */
 async function leggiObbligo(attesaMs: number): Promise<boolean> {
+  const p = await prove();
+  forzato = p.muro === 'acceso';
+  senzaSchermata = p.prove;
   const ferma = new AbortController();
   const timer = setTimeout(() => ferma.abort(), attesaMs);
   try {
@@ -95,7 +116,7 @@ async function leggiObbligo(attesaMs: number): Promise<boolean> {
   } finally {
     clearTimeout(timer);
   }
-  return obbligo;
+  return acceso();
 }
 
 function mostra(nuovo: EsitoMuro): void {
@@ -205,6 +226,8 @@ function accountQui(): boolean {
 /** Cambia schermata. Il «prima» si legge qui, subito prima di cambiare: se due controlli finiscono insieme, solo
  * uno vede il cambio (e la sincronizzazione riparte una volta sola). */
 function cambia(nuovo: EsitoMuro, approvato: boolean): EsitoMuro {
+  // le prove automatiche vedono l'app aperta: il muro decide lo stesso, ma la schermata non c'è (§9.7 B)
+  if (senzaSchermata) nuovo = 'aperto';
   const prima = esito;
   mostra(nuovo);
   // il benvenuto solo per un'approvazione vera (non per chi è già approvato e ha appena rifatto l'accesso)
@@ -214,7 +237,7 @@ function cambia(nuovo: EsitoMuro, approvato: boolean): EsitoMuro {
 
 /** Decide di nuovo cosa mostrare, con quello che si sa adesso (interruttore, account, stato della richiesta). */
 async function valuta(): Promise<EsitoMuro> {
-  if (!obbligo && !utente && !sincronizzazioneAttiva() && !accountQui()) {
+  if (!acceso() && !utente && !sincronizzazioneAttiva() && !accountQui()) {
     smettiDiSeguire();
     return cambia('aperto', false);
   }
@@ -232,7 +255,7 @@ async function valuta(): Promise<EsitoMuro> {
   if (utente) void registraToken();
   const inviato = !!utente && inviati.has(utente.uid);
   return cambia(
-    decidiMuro({ obbligo, uid: utente?.uid ?? null, admin, stato: statoAccesso, inviato }),
+    decidiMuro({ obbligo: acceso(), uid: utente?.uid ?? null, admin, stato: statoAccesso, inviato }),
     statoAccesso === 'approvato',
   );
 }

@@ -1173,6 +1173,10 @@ def main():
     adb('logcat -c')
     adb('logcat -b crash -c')
     adb('shell settings put system font_scale 1.0')
+    # prove automatiche (§9.7 B): anche se Valerio ha acceso il muro, l'app non ne mostra la schermata (indirizzi e
+    # regole restano veri). Le proprietà debug.* le scrive solo adb; le versioni fino alla 1.0.82 non le conoscono
+    adb('shell setprop debug.eurodex.prove 1')
+    adb('shell setprop debug.eurodex.muro no')
     t = avvia(freddo=True)
     log(f'Apertura a freddo: {t} ms')
     if t and t > 8000:   # emulatore senza scheda video: un telefono vero è molto più veloce

@@ -323,6 +323,17 @@ Accesso solo con Google anche nelle regole: `conGoogle()` in `create`, in `appro
    Storage per quei flussi, raggiungibili dal telefono simulato a `10.0.2.2` (strada C, con la stessa proprietà),
    oppure quella parte si prova sul telefono vero. Va scelto prima di scrivere l'app.
 
+**Fatto per la 1.0.83** (Claude 3 si è accorto che su `main` mancava):
+- `Nativo.modoProve()` legge `debug.eurodex.prove` e `debug.eurodex.muro` con `SystemProperties.get`;
+- con `prove=1`, `cambia()` resta `aperto` (la schermata non c'è, il resto è vero);
+- con `muro=acceso`, il muro vale acceso solo su quel telefono: può solo chiudere, e serve a provare il muro vero
+  nell'APK senza toccare l'interruttore di Valerio;
+- `test-emulator.py` ed `esploratore.py` mettono `prove=1` prima del primo avvio. La prova 7b controlla che con
+  `muro=acceso` si veda il muro e che con `prove=1` si veda l'app.
+
+Le versioni fino alla 1.0.82 non conoscono le proprietà. «Sopra» e la prova di aggiornamento partono dalla versione
+pubblicata, quindi **il muro si accende solo quando la versione pubblicata è almeno la 1.0.83**.
+
 ### 9.8 Passo 5, reso esplicito (con A, §9.1)
 
 - **togliere `dati/` dalla pagina pubblica**, o almeno smettere di aggiornarla. Non è per nascondere i contenuti, che

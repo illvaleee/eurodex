@@ -282,6 +282,11 @@ note(adb('shell bmgr transport com.android.localtransport/.LocalTransport'))
 adb('shell settings put global window_animation_scale 0')
 adb('shell settings put global hide_error_dialogs 1')  # niente finestre "non risponde" di Android (i crash si leggono dal registro)
 adb('logcat -c')
+# prove automatiche (§9.7 B): anche se Valerio ha acceso il muro, l'app non ne mostra la schermata (indirizzi e regole
+# restano veri). Le proprietà debug.* le scrive solo adb. Le versioni fino alla 1.0.82 non le conoscono: per «sopra» e
+# per l'aggiornamento, che partono dalla versione pubblicata, il muro resta spento finché quella non è almeno la 1.0.83
+adb('shell setprop debug.eurodex.prove 1')
+adb('shell setprop debug.eurodex.muro no')
 
 MODE = sys.argv[3] if len(sys.argv) > 3 else 'completa'
 if MODE == 'sopra':
@@ -774,6 +779,29 @@ tap('Italia', required=False, scroll=8)
 shot('scuro_italia')
 adb('shell cmd uimode night no')
 time.sleep(2)
+adb(f'shell am force-stop {PKG}')
+
+# 7b. il muro acceso solo su questo telefono (debug.eurodex.muro=acceso): senza debug.eurodex.prove si vede il muro vero
+# dell'APK, con la proprietà le prove vedono l'app. Se il muro acceso da Valerio bloccasse le prove, nessuna versione si
+# pubblicherebbe più (revisione di Claude 3): così lo si sa subito, e si sa che l'app legge le proprietà
+adb('shell setprop debug.eurodex.muro acceso')
+adb('shell setprop debug.eurodex.prove 0')
+adb(f'shell am start -n {PKG}/.MainActivity')
+muro_visto = False
+for _ in range(15):
+    time.sleep(2)
+    if visible('Eurodex è su invito') and visible('Accedi con Google'):
+        muro_visto = True
+        break
+shot('muro_acceso')
+check(muro_visto, 'col muro acceso (solo su questo telefono) si vede il muro vero: «Eurodex è su invito» e «Accedi con Google»')
+adb('shell setprop debug.eurodex.prove 1')
+adb(f'shell am force-stop {PKG}')
+aperta = launch(8)
+chiudi_fogli()
+shot('muro_acceso_prove')
+check(aperta and not visible('Eurodex è su invito'), "col muro acceso e debug.eurodex.prove=1 le prove vedono l'app")
+adb('shell setprop debug.eurodex.muro no')
 adb(f'shell am force-stop {PKG}')
 
 # 8. copie degli ultimi giorni
