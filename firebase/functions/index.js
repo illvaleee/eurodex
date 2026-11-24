@@ -53,9 +53,12 @@ exports.avvisaDispositivi = onDocumentCreated({ ...OPZIONI, document: 'collezion
   const data = L.datiSync(cid, d);
   const android = { priority: 'high', ttl: 24 * 3600 * 1000 };
   try {
-    // le app fino alla 1.0.80 ascoltano l'argomento; quelle nuove ricevono sul proprio token (§4.5, passaggio)
-    await getMessaging().send({ topic: 'c_' + cid, data, android });
-    await mandaAiDispositivi(cid, { data, android });
+    // le app vecchie ascoltano l'argomento; quelle nuove ricevono sul proprio token, dalla 1.0.83 solo lì (§4.5, §10.3).
+    // Due invii indipendenti: se l'argomento dà errore, i telefoni col token ricevono lo stesso, e viceversa
+    await L.inviiIndipendenti([
+      () => getMessaging().send({ topic: 'c_' + cid, data, android }),
+      () => mandaAiDispositivi(cid, { data, android }),
+    ]);
   } finally {
     await snap.ref.delete().catch(() => {});
   }
