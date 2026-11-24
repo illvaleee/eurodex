@@ -40,6 +40,15 @@ service cloud.firestore {
     // rifiutato, o con l'accesso tolto: fuori anche con il muro spento
     function escluso(uid) { return conRichiesta(uid) && statoDi(uid) in ['rifiutato', 'revocato']; }
 
+    // l'ora dell'ultimo tentativo, scritta dalla funzione tentativoDiAccesso (le richieste che non ce l'hanno contano
+    // come vecchie). Limite di costo, non di sicurezza: un tentativo ogni 20 secondi per account (revisione di Claude 2)
+    function ultimoTentativo(uid) {
+      return get(/databases/$(database)/documents/accessi/$(uid)).data.get('ultimoTentativo', timestamp.value(0));
+    }
+    function tentativoRecente(uid) {
+      return conRichiesta(uid) && request.time < ultimoTentativo(uid) + duration.value(20, 's');
+    }
+
     // muro acceso: solo gli approvati (e Valerio); muro spento: tutti tranne gli esclusi
     function puoUsare(uid) {
       return mia(uid) && (admin() || approvato() || (!accessoObbligatorio() && !escluso(uid)));
@@ -72,7 +81,7 @@ service cloud.firestore {
       // un tentativo di accesso (ogni accesso con Google nell'app): lo scrive l'account stesso, con il solo telefono
       // (nome ed email la funzione li prende da Authentication); lo legge e lo cancella solo la funzione
       match /tentativi/{tid} {
-        allow create: if mia(uid) && conGoogle()
+        allow create: if mia(uid) && conGoogle() && !tentativoRecente(uid)
           && request.resource.data.keys().hasOnly(['quando', 'dispositivo', 'motivo'])
           && request.resource.data.quando == request.time
           // il telefono è solo un aiuto: niente @ (servirebbe a fingersi qualcun altro), niente caratteri di
