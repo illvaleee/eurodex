@@ -154,7 +154,8 @@ jobs:
       # telefono serve quella normale. Si guarda il CSS compilato, dove il difetto nasceva (revisione di Claude 3)
       - name: Lo sfocato delle barre resta nel CSS compilato
         run: |
-          n=$(grep -oE '(^|[;{])backdrop-filter:' www/build/*.css | wc -l)
+          # || true: con pipefail un grep senza risultati fermerebbe il passo prima del messaggio (Claude 3)
+          n=$( { grep -oE '(^|[;{])backdrop-filter:' www/build/*.css || true; } | wc -l)
           [ "$n" -ge 2 ] || { echo "::error title=Sfocato::backdrop-filter nel CSS compilato $n volte (servono la barra in alto e quella in basso)"; exit 1; }
 
       - name: Progetto Android
