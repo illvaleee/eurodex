@@ -370,12 +370,22 @@ diverse di §4 e §9.
   telefoni **restano**: chi ritenta e viene riapprovato riceve la notifica. Un account escluso non riceve altro,
   perché non può scrivere eventi. Questo sostituisce il «toglie i token» di §4.7.
 - **Token:** i telefoni li registra ogni account, qualunque sia il suo stato, e li toglie uscendo. Per ora la
-  sincronizzazione arriva sia dall'argomento sia dal token. La parte nativa ignora il doppione, e la disiscrizione
-  dagli argomenti di §4.5 resta un passo successivo.
+  sincronizzazione arriva sia dall'argomento sia dal token. La parte nativa ignora il doppione: tiene le ultime 8
+  notizie.
+- **Argomenti (§4.5), con una data** (revisione di Claude 2): la 1.0.83 non si iscrive più a `c_<uid>` e ad
+  `aggiornamenti`. Il server smette di mandarci quando tutti i telefoni nell'elenco di Valerio sono alla 1.0.82 o
+  oltre, e lui lo vede dalla versione accanto a ogni telefono. Finché gli argomenti ci sono, chi conosce un uid o ha
+  un'app vecchia riceve ancora quelle notifiche.
+- **Notifiche a Valerio:** al massimo una al minuto per account, anche per chi ritenta dopo un rifiuto. È la scelta
+  di Valerio del 24/11, fatta sapendo che chi insiste può mandarne una al minuto. I tentativi restano contati
+  nell'elenco.
+- **Dopo la pubblicazione** (revisione di Claude 2, d'accordo): un tentativo ogni 20 secondi per account, con la
+  regola `!conRichiesta(uid) || request.time > ultimoTentativo + 20s`. È un limite di costo, non di sicurezza.
 
 ### 10.4 La sezione di Valerio e la schermata di accesso
 - **Sezione di Valerio:** contiene tutti gli account che hanno fatto l'accesso, divisi in in attesa, approvati e non
-  approvati. Per ognuno: ultimo accesso con telefono, numero di accessi e telefoni della sincronizzazione
+  approvati. In grassetto c'è l'email, che viene da Google; il nome lo sceglie la persona, quindi sta sotto e senza `@`.
+  Ogni decisione, anche «Approva», chiede conferma con l'email nel titolo (revisione di Claude 3). Per ognuno: ultimo accesso con telefono, numero di accessi e telefoni della sincronizzazione
   (`collezioni/*/dispositivi`, che Valerio legge e basta), con versione e ultima apertura.
 - **Schermata di accesso:**
   - dopo l'accesso, direttamente «Richiesta inviata»;
