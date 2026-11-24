@@ -13,6 +13,12 @@ IT = [t for t in cat['types'] if t['cc'] == 'IT' and len(t['p']) >= 3]
 FR = [t for t in cat['types'] if t['cc'] == 'FR' and len(t['p']) >= 3]
 POSS = [p[0] for t in IT[:8] for p in t['p'][:2] if not p[3]] + [p[0] for t in FR[:4] for p in t['p'][:1] if not p[3]]
 ERR, NOTE = [], []
+# il muro vero (config/accesso sul server) qui non conta: queste prove non usano gli emulatori, e col muro acceso da
+# Valerio vedrebbero solo la schermata per accedere. Il muro lo provano accesso-app.py (emulatori) e la 7b dell'APK
+async def muro_spento(ctx):
+    await ctx.route('**/documents/config/accesso*', lambda r: r.fulfill(status=404, body='{}'))
+
+
 def ok(c, m):
     print(('✓ ' if c else '✗ ') + m, flush=True)
     if not c: ERR.append(m)
@@ -21,6 +27,7 @@ async def main():
     async with async_playwright() as p:
         b = await p.chromium.launch()
         ctx = await b.new_context(viewport={'width': 412, 'height': 915}, device_scale_factor=1.5, reduced_motion='reduce')
+        await muro_spento(ctx)
         await ctx.add_init_script("if (!localStorage.getItem('collezioneEuro.v3')) localStorage.setItem('collezioneEuro.v3', JSON.stringify({app:'collezione-euro', versione:3, possedute:" + json.dumps(POSS) + ", meta:{benvenuto:1, novitaVista:999}}))")
         pg = await ctx.new_page(); errs = []
         pg.on('pageerror', lambda e: errs.append(str(e)))
@@ -245,6 +252,7 @@ async def main():
         for sc in ('light', 'dark'):
             for w, h in ((360, 740), (412, 915), (800, 1280), (1100, 700)):
                 c2 = await b.new_context(viewport={'width': w, 'height': h}, color_scheme=sc, reduced_motion='reduce')
+                await muro_spento(c2)
                 await c2.add_init_script("localStorage.setItem('collezioneEuro.v3', JSON.stringify({app:'collezione-euro', versione:3, possedute:" + json.dumps(POSS) + ", preferiti:['" + str(a) + "'], meta:{benvenuto:1, novitaVista:999}}))")
                 q = await c2.new_page(); e2 = []; q.on('pageerror', lambda e: e2.append(str(e)))
                 await q.goto('http://localhost:8791/index.html'); await q.wait_for_timeout(1800)
