@@ -87,6 +87,36 @@ public class NativoPlugin extends Plugin {
         try { p.notifyListeners("sincronizza", o); } catch (Exception ignored) {}
     }
 
+    // accesso su approvazione, con l'app aperta: per Valerio richieste e tentativi (con titolo e testo da mostrare),
+    // per gli altri l'approvazione o l'accesso tolto (ad app chiusa la notifica la mostra Android da solo)
+    static void accesso(java.util.Map<String, String> d) {
+        NativoPlugin p = istanza;
+        if (p == null) return;
+        JSObject o = new JSObject();
+        o.put("tipo", d.get("tipo"));
+        for (String k : new String[] { "titolo", "testo" }) {
+            String v = d.get(k);
+            if (v != null) o.put(k, v.length() > 300 ? v.substring(0, 300) : v);
+        }
+        try { p.notifyListeners("accesso", o); } catch (Exception ignored) {}
+    }
+
+    // il token di questo telefono per le notifiche dirette: le richieste di accesso arrivano a Valerio, l'approvazione
+    // a chi l'aspetta (docs/progetto-accesso-su-approvazione.md, §9.3)
+    @PluginMethod
+    public void tokenNotifiche(PluginCall call) {
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().getToken().addOnCompleteListener(t -> {
+                JSObject o = new JSObject();
+                if (t.isSuccessful() && t.getResult() != null) o.put("token", t.getResult());
+                call.resolve(o);
+            });
+        } catch (Exception e) {
+            // telefono senza servizi Google: niente notifiche dirette
+            call.resolve(new JSObject());
+        }
+    }
+
     @PluginMethod
     public void infoDispositivo(PluginCall call) {
         JSObject r = new JSObject();

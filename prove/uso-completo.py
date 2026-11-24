@@ -39,7 +39,11 @@ async def run(scheme):
         pg=await ctx.new_page()
         errs=[]
         pg.on('pageerror', lambda e: errs.append('PAGE '+str(e)))
-        pg.on('console', lambda m: errs.append('CONSOLE '+m.text) if m.type=='error' and '404' not in m.text else None)
+        # l'interruttore del muro (config/accesso) si legge dal server vero: finché le regole nuove non sono
+        # pubblicate risponde 403, poi 404 finché Valerio non lo tocca. L'app va avanti lo stesso (muro spento)
+        interruttore = lambda m: 'firestore.googleapis.com' in ((m.location or {}).get('url') or '')
+        pg.on('console', lambda m: errs.append('CONSOLE '+m.text)
+              if m.type == 'error' and '404' not in m.text and not interruttore(m) else None)
         n=[0]
         async def shot(name):
             n[0]+=1; await pg.screenshot(path=f'{SH}{scheme}_{n[0]:02d}_{name}.png')

@@ -28,6 +28,16 @@ public class AvvisiPush extends FirebaseMessagingService {
                 SharedPreferences sp = c.getSharedPreferences("aggiornamenti", Context.MODE_PRIVATE);
                 String cid = sp.getString("sync_cid", ""), mio = sp.getString("sync_did", "");
                 if (cid.isEmpty() || !cid.equals(d.get("cid")) || mio.equals(d.get("did"))) return;
+                // la stessa notizia può arrivare due volte, dall'argomento (per le versioni vecchie) e dal token di
+                // questo telefono (§4.5): la seconda si ignora. Si ricordano le ultime 8, perché con due modifiche
+                // ravvicinate le copie possono arrivare mescolate (revisione di Claude 3 su #14)
+                String chiave = Integer.toHexString((d.get("did") + "|" + d.get("ts") + "|" + d.get("testo")).hashCode());
+                java.util.ArrayList<String> visti = new java.util.ArrayList<>();
+                for (String v : sp.getString("sync_visti", "").split(",")) if (!v.isEmpty()) visti.add(v);
+                if (visti.contains(chiave)) return;
+                visti.add(chiave);
+                while (visti.size() > 8) visti.remove(0);
+                sp.edit().putString("sync_visti", android.text.TextUtils.join(",", visti)).apply();
                 NativoPlugin.evento(d);   // se l'app è aperta si aggiorna subito
                 if (!sp.getBoolean("attivi", true)) return;   // notifiche spente nelle impostazioni dell'app
                 // app aperta sullo schermo: l'avviso lo mostra già l'app, la notifica sarebbe un doppione
@@ -38,6 +48,14 @@ public class AvvisiPush extends FirebaseMessagingService {
                 String quando = new java.text.SimpleDateFormat(oggi ? "'oggi alle' HH:mm" : "d MMM 'alle' HH:mm", java.util.Locale.ITALIAN).format(new java.util.Date(ts));
                 notificaSync(c, sp, d.get("nome"), quando + " · " + d.get("testo"));
             } catch (Exception ignored) {}
+            return;
+        }
+        // accesso su approvazione (per Valerio richieste e tentativi; per gli altri l'approvazione o l'accesso tolto):
+        // con l'app aperta lo dice l'app; ad app chiusa questi messaggi non passano da qui, la notifica (titolo e
+        // testo) la mostra Android
+        String tipo = d.get("tipo");
+        if ("accesso".equals(tipo) || "approvato".equals(tipo) || "tolto".equals(tipo)) {
+            NativoPlugin.accesso(d);
             return;
         }
         // dati nuovi (catalogo, schede, foto): non serve installare niente, l'app li scarica quando si apre

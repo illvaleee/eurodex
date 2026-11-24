@@ -3087,3 +3087,54 @@ nav.tabs button {
 .mb12 {
   margin: 0 0 12px;
 }
+
+/* accesso su approvazione: la schermata davanti a tutto (sopra fogli e schede, sotto avvisi e finestre di dialogo)
+   finché Valerio non approva l'account */
+.muro {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: grid;
+  place-items: center;
+  padding: calc(24px + env(safe-area-inset-top)) 18px calc(24px + env(safe-area-inset-bottom));
+  background: var(--bg);
+  overflow-y: auto;
+}
+.muro-in {
+  width: min(440px, 100%);
+  background: var(--card);
+  border-radius: 22px;
+  padding: 26px 20px 20px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+}
+.muro .bstat {
+  margin-top: 16px;
+  text-align: center;
+}
+body.con-muro {
+  overflow: hidden;
+}
+
+/* la sezione di Valerio: una richiesta per riga, con i suoi pulsanti sotto il nome */
+.disp.acc {
+  align-items: flex-start;
+}
+/* email e ultimo accesso, poi i telefoni: ognuno sulla sua riga */
+.disp.acc .grow > span {
+  display: block;
+}
+.disp.acc .dico {
+  font-size: 15px;
+  font-weight: 700;
+  margin-top: 2px;
+}
+.accnota {
+  display: block;
+  font-style: italic;
+}
+.accbtn {
+  margin-top: 8px;
+}
+.accbtn .btn {
+  margin: 0;
+}

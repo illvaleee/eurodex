@@ -98,6 +98,8 @@ jobs:
           python3 -m playwright install --with-deps chromium >/dev/null
           # firebase-tools a versione fissa, con il lockfile (lo stesso di sincronizzazione.yml)
           (cd firebase/strumenti && npm ci --no-audit --no-fund --silent)
+          # le funzioni dell'accesso girano nel loro emulatore (tentativi, approvazione e rifiuto in automatico)
+          (cd firebase/functions && npm ci --no-audit --no-fund --silent)
       - name: Prove come una persona
         run: PROVE_FOTO=$PWD/prove-foto bash prove/esegui.sh
       - name: Foto delle prove

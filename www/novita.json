@@ -1,5 +1,15 @@
 [
   {
+    "id": 21,
+    "titolo": "Eurodex su invito",
+    "data": "2026-11-24",
+    "avviso": "Eurodex diventa su invito: chi accede con Google arriva a Valerio, che approva il suo account",
+    "nuovo": [
+      "Accedendo con Google il tuo account arriva a Valerio, che lo approva: l'approvazione resta anche se reinstalli l'app o cambi telefono",
+      "Quando Valerio accenderà l'accesso su invito, chi non è approvato vedrà solo la schermata per accedere; appena approvato si apre da sola e arriva una notifica"
+    ]
+  },
+  {
     "id": 20,
     "titolo": "Percentuale per anno nei commemorativi, sincronizzazione più chiara",
     "data": "2026-11-21",

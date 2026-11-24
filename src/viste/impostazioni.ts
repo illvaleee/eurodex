@@ -7,6 +7,7 @@ import { numero } from '../core/formato';
 import { Nativo, nativo } from '../nativo/plugin';
 import { versioneApp } from '../nativo/versione';
 import { mostraDispositivi, mostraInAttesa, sezioneSync } from '../sync/interfaccia';
+import { disegnaSezioneAccesso } from './accesso';
 import { sincronizzazioneAttiva } from '../sync/sincronizzazione';
 import { apriFoglio, foglioCon } from '../ui/foglio';
 import { ICONA, ICONA_GOOGLE } from '../ui/icone';
@@ -110,6 +111,7 @@ export async function apriImpostazioni(): Promise<void> {
     )}
     <div class="sec">Sfondo</div>
     <div id="sfondobox"></div>
+    <div id="accessobox"></div>
     <div class="sec">Salvataggio e sincronizzazione</div>
     <div class="muted small">
       Per non perdere mai la collezione e ritrovarla su un altro dispositivo, o su un telefono nuovo se quello vecchio
@@ -243,6 +245,7 @@ export async function apriImpostazioni(): Promise<void> {
   disegnaRuota();
   void mostraDispositivi();
   void mostraInAttesa();
+  void disegnaSezioneAccesso();
   const dentro = $('.sheet .in');
   if (dentro && posizione) dentro.scrollTop = posizione;
 }

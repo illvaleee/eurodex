@@ -28,8 +28,14 @@ export interface NativoPlugin {
   azioneIniziale(): Promise<{ azione?: string }>;
   barre(o: { colore: string; iconeChiare: boolean }): Promise<void>;
   registra(o: { livello: 'errore' | 'avviso'; testo: string }): Promise<void>;
+  /** Il token di questo telefono per le notifiche dirette (accesso su approvazione). */
+  tokenNotifiche(): Promise<{ token?: string }>;
   addListener(evento: 'download', f: (e: { percento: number }) => void): Promise<PluginListenerHandle>;
   addListener(evento: 'azione', f: (e: { azione?: string }) => void): Promise<PluginListenerHandle>;
+  addListener(
+    evento: 'accesso',
+    f: (e: { tipo?: string; titolo?: string; testo?: string }) => void,
+  ): Promise<PluginListenerHandle>;
   addListener(
     evento: 'sincronizza',
     f: (e: { did?: string; nome?: string; testo?: string }) => void,

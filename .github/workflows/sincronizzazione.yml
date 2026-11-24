@@ -9,6 +9,7 @@ on:
     paths:
       [
         'firebase/**',
+        'prove/regole-accesso.py',
         'firebase.json',
         'scripts/firebase-prepara.py',
         'scripts/prova-sincronizzazione.py',
@@ -74,6 +75,18 @@ jobs:
           (cd firebase/strumenti && npm ci --no-audit --no-fund --silent)
           (cd firebase/functions && npm ci --no-audit --no-fund --silent)
           firebase/strumenti/node_modules/.bin/firebase --version
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # regole e postino si provano prima di pubblicarli, sugli emulatori e senza nessun segreto
+      - name: Prove delle regole e del postino
+        run: |
+          node --test firebase/functions/logica.test.js
+          firebase/strumenti/node_modules/.bin/firebase emulators:exec --only auth,firestore \
+            --project collezione-euro-24ecd "python3 prove/regole-accesso.py"
 
       - name: Chiave di Firebase (fuori dal progetto)
         env:

@@ -69,6 +69,9 @@ export const ICONA = {
   spark: tratto(svg`<path d="M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z" />`),
   check: tratto(svg`<path d="M5 12.5l4.5 4.5L19 7.5" />`, 2.4),
   clock: tratto(svg`<circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />`),
+  lucchetto: tratto(
+    svg`<rect x="5" y="10.5" width="14" height="10.5" rx="2.5" /><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3M12 15v2" />`,
+  ),
   telefono: tratto(svg`<rect x="6.5" y="2.5" width="11" height="19" rx="2.5" /><path d="M11 18.5h2" />`, 2),
   tablet: tratto(svg`<rect x="3.5" y="3.5" width="17" height="17" rx="2.5" /><path d="M11 17.5h2" />`, 2),
 } satisfies Record<string, TemplateResult>;

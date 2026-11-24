@@ -21,6 +21,8 @@ import {
   sincronizzazioneAttiva,
   stessoDispositivo,
 } from './sync/sincronizzazione';
+import { aggiornaMuro, controllaMuro, muroAcceso, preparaNotifiche } from './sync/muro';
+import { apriGestioneAccessi } from './viste/accesso';
 import { avviso } from './ui/avvisi';
 import { attivaAzioni } from './ui/azioni';
 import { aggiornaContatori } from './ui/contatori';
@@ -53,12 +55,17 @@ async function azioneNotifica(a: string | undefined, allAvvio: boolean): Promise
     if (!document.body.classList.contains('open-sheet') && stato.stack[stato.stack.length - 1]?.v !== 'hist')
       vai('hist', {});
   } else if (a === 'dati') await usaDatiGiaScaricati();
+  // una richiesta o un tentativo di accesso (notifica di Valerio): si apre la sua sezione
+  else if (a === 'accessi') await apriGestioneAccessi();
+  // approvato o accesso tolto: il muro si toglie o si mette da solo
+  else if (a === 'accesso') await aggiornaMuro();
 }
 
 const ogniTanto = (ultima: number | undefined, ore: number) => Date.now() - (ultima ?? 0) > ore * 3600e3;
 
 /** L'app torna in primo piano: backup se serve, aggiornamenti e dati nuovi ogni tanto. */
 function alRitorno(): void {
+  void aggiornaMuro(); // Valerio potrebbe aver acceso o spento il muro, o approvato questo account
   if (meta.drive && meta.driveSporco) void backupNativo();
   if (ogniTanto(meta.updChecked, 6)) void controllaAggiornamento(false);
   void usaDatiGiaScaricati().then(arrivati => {
@@ -92,7 +99,9 @@ async function leggiCatalogo(): Promise<CatalogoGrezzo> {
 }
 
 /** Le finestre dell'avvio, una alla volta: aggiornamento, benvenuto o novità, proposte. */
-async function finestreAvvio(aggiornamento: Promise<void>): Promise<void> {
+async function finestreAvvio(aggiornamento: Promise<void>, muro: Promise<boolean>): Promise<void> {
+  // muro acceso e account non approvato: solo la schermata per chiedere l'accesso, niente altre finestre
+  if (await muro) return;
   await aggiornamento;
   if (stato.update) await avvisoAggiornamento();
   if (!meta.benvenuto && !possedute.size) {
@@ -151,7 +160,11 @@ async function avvia(): Promise<void> {
     void caricaFotoPerBackup(); // copia compatta della foto di sfondo, per i file di backup
     spostaChiaviCambiate();
     ridisegna();
-    introPronta();
+    // il muro si controlla subito, durante l'animazione: chi non è approvato non vede la collezione prima del muro
+    // (con il muro acceso l'animazione aspetta il controllo, al massimo 4 secondi)
+    const muro = controllaMuro();
+    if (muroAcceso()) void Promise.race([muro, new Promise(r => setTimeout(r, 4000))]).finally(() => introPronta());
+    else introPronta();
     coloraBarre();
     document.addEventListener('introfine', coloraBarre, { once: true });
     esponiPerLeProve();
@@ -159,7 +172,7 @@ async function avvia(): Promise<void> {
       ridisegna();
       aggiornaContatori();
     });
-    void avviaSincronizzazione();
+    void avviaSincronizzazione().then(() => preparaNotifiche().catch(() => undefined));
     if (nativo()) {
       if (prefs.avvisi) avvisiAggiornamenti(true, false);
       confermaAlTelefono();
@@ -172,13 +185,25 @@ async function avvia(): Promise<void> {
           if (d.azione) dopoIntro(() => setTimeout(() => void azioneNotifica(d.azione, true), 600));
         })
         .catch(() => undefined);
+      void Nativo.addListener('accesso', d => {
+        // con l'app aperta: a Valerio richieste e tentativi (approvati o rifiutati in automatico); agli altri
+        // l'approvazione o l'accesso tolto (il muro cambia da solo)
+        if (d.tipo === 'accesso')
+          avviso(
+            d.titolo
+              ? `${d.titolo}: ${d.testo ?? ''} (Impostazioni → Accesso)`
+              : 'Nuova richiesta di accesso a Eurodex: aprila da Impostazioni → Accesso',
+            7000,
+          );
+        else void aggiornaMuro();
+      });
       void Nativo.addListener('sincronizza', d => {
         if (!stessoDispositivo(d.did))
           avviso(d.testo ? `Da ${d.nome ?? ''}: ${d.testo}` : 'Collezione aggiornata da un altro dispositivo', 7000);
       });
     }
     const aggiornamento = nativo() ? controllaAggiornamento(false, 4000) : Promise.resolve(); // parte subito, durante l'animazione
-    dopoIntro(() => void finestreAvvio(aggiornamento));
+    dopoIntro(() => void finestreAvvio(aggiornamento, muro));
     // le schede complete (1,9 MB) si leggono quando il telefono è libero, dopo l'animazione: niente scatti all'avvio
     dopoIntro(() =>
       requestIdleCallback(
