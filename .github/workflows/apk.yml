@@ -150,6 +150,14 @@ jobs:
       - name: Compila l'app (TypeScript → www)
         run: npm run build
 
+      # lo sfocato delle barre (#12): delle due versioni (-webkit- e normale) Vite ne tiene una sola, e sul
+      # telefono serve quella normale. Si guarda il CSS compilato, dove il difetto nasceva (revisione di Claude 3)
+      - name: Lo sfocato delle barre resta nel CSS compilato
+        run: |
+          # || true: con pipefail un grep senza risultati fermerebbe il passo prima del messaggio (Claude 3)
+          n=$( { grep -oE '(^|[;{])backdrop-filter:' www/build/*.css || true; } | wc -l)
+          [ "$n" -ge 2 ] || { echo "::error title=Sfocato::backdrop-filter nel CSS compilato $n volte (servono la barra in alto e quella in basso)"; exit 1; }
+
       - name: Progetto Android
         run: |
           printf '{"code":%s,"version":"1.0.%s"}\n' "$N" "$N" > www/version.json
