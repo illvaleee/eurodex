@@ -193,10 +193,10 @@ async function primoAvvio(uid: string): Promise<void> {
     scrivi(LS_PRIMO, [...(leggi(LS_PRIMO) ?? '').split(',').filter(Boolean), uid].join(','));
 }
 
-/** Un tentativo di accesso di questo account: lo legge la funzione, che decide e avvisa Valerio. */
 /** Quando questa app ha scritto l'ultimo tentativo di ogni account (per capire un rifiuto «troppo presto»). */
 const scrittoAlle = new Map<string, number>();
 
+/** Un tentativo di accesso di questo account: lo legge la funzione, che decide e avvisa Valerio. */
 async function tentativo(uid: string, motivo: MotivoTentativo): Promise<EsitoTentativo> {
   inviati.add(uid);
   try {
