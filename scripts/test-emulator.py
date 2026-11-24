@@ -288,6 +288,14 @@ adb('logcat -c')
 adb('shell setprop debug.eurodex.prove 1')
 adb('shell setprop debug.eurodex.muro no')
 
+def senza_strumento(righe):
+    """Toglie le righe di un crash di uiautomator, lo strumento della prova che legge lo schermo («FATAL EXCEPTION:
+    UiAutomation»): non è l'app. Via tutte le righe di quel processo (formato threadtime: data ora pid tid …), come fa
+    già la prova completa con la riga del crash."""
+    pid = {r.split()[2] for r in righe if 'FATAL EXCEPTION: UiAutomation' in r and len(r.split()) > 2}
+    return [r for r in righe if not (len(r.split()) > 2 and r.split()[2] in pid)]
+
+
 MODE = sys.argv[3] if len(sys.argv) > 3 else 'completa'
 if MODE == 'sopra':
     # Prova PRIMA della pubblicazione: sul telefono c'è la versione già pubblicata (APK), con delle monete segnate e
@@ -368,7 +376,7 @@ if MODE == 'sopra':
     tap('Collezione', exact=True)
     check(visible('Preferite'), 'dopo l\'aggiornamento la preferita c\'è ancora')
     shot('nuova_collezione')
-    errori = [r for r in adb('logcat -d -s Eurodex:E AndroidRuntime:E', timeout=60).splitlines() if ' E ' in r]
+    errori = senza_strumento([r for r in adb('logcat -d -s Eurodex:E AndroidRuntime:E', timeout=60).splitlines() if ' E ' in r])
     check(in_front() and not errori, f'la versione nuova si apre e funziona senza errori ({errori[:2]})')
     note('\nRISULTATO: ' + ('TUTTO OK' if not FAIL else 'PROBLEMI: ' + '; '.join(FAIL)))
     LOG.close()
