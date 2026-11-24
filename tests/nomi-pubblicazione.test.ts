@@ -44,6 +44,15 @@ describe('nomi dei file sulla pagina di download', () => {
     expect(passa(nomiPubblicazione('202611231607', vecchio, LUNEDI).numero)).toBe(true);
   });
 
+  it('dati diversi nello stesso minuto: un numero diverso da quello pubblicato', () => {
+    const n = nomiPubblicazione('1', null, LUNEDI).numero;
+    const pubblicato = { rev: 202611231607, file: { catalogo: `catalog-${n}.json`, schede: `details-${n}.json` } };
+    const r = nomiPubblicazione('202611231608', pubblicato, LUNEDI + 30000);
+    expect(r.numero).toBe(String(Number(n) + 1));
+    expect(passa(r.numero)).toBe(true);
+    expect(r.tenere).toEqual([`catalog-${n}.json`, `details-${n}.json`]);
+  });
+
   it("dall'indice pubblicato si tengono solo nomi previsti", () => {
     const strano = { rev: 1, file: { catalogo: '../../etc/x.json', schede: 'details-1.json/../../x' } };
     expect(nomiPubblicazione('2', strano, LUNEDI).tenere).toEqual([]);

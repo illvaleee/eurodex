@@ -23,7 +23,10 @@ export function nomiPubblicazione(rev, pubblicato, adesso = Date.now()) {
   const tenere = [f.catalogo, f.schede].filter(x => typeof x === 'string' && DA_TENERE.test(x));
   const m = typeof f.catalogo === 'string' ? /^catalog-([0-9]{1,9})\.json$/.exec(f.catalogo) : null;
   const stessi = m !== null && f.schede === `details-${m[1]}.json` && String(pubblicato.rev) === String(rev);
-  return { numero: stessi ? m[1] : nuovo, tenere };
+  if (stessi) return { numero: m[1], tenere };
+  // dati diversi pubblicati nello stesso minuto: un numero nuovo, perché la cache di GitHub non dia quelli di prima
+  // (revisione di Claude 2 su #15)
+  return { numero: m !== null && m[1] === nuovo ? String(Number(nuovo) + 1) : nuovo, tenere };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
