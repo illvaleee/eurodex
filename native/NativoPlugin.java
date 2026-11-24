@@ -139,8 +139,11 @@ public class NativoPlugin extends Plugin {
         sp.edit().putString("sync_cid", cid).putString("sync_did", did).putString("sync_nome", nome).apply();
         try {
             com.google.firebase.messaging.FirebaseMessaging fm = com.google.firebase.messaging.FirebaseMessaging.getInstance();
-            if (!vecchio.isEmpty() && !vecchio.equals(cid)) fm.unsubscribeFromTopic("c_" + vecchio);
-            if (!cid.isEmpty()) fm.subscribeToTopic("c_" + cid);
+            // dalla 1.0.83 la sincronizzazione arriva solo al token di questo telefono (accessi/{uid}/dispositivi,
+            // §10.3): l'argomento c_<uid> lo riceverebbe chiunque conosca l'uid. Ci si toglie da quello di prima e da
+            // quello di adesso, e non ci si iscrive più. «aggiornamenti» invece resta (versione e catalogo nuovi)
+            if (!vecchio.isEmpty()) fm.unsubscribeFromTopic("c_" + vecchio);
+            if (!cid.isEmpty() && !cid.equals(vecchio)) fm.unsubscribeFromTopic("c_" + cid);
         } catch (Exception ignored) {}
         call.resolve();
     }

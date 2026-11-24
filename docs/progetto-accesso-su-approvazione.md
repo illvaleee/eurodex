@@ -372,10 +372,15 @@ diverse di §4 e §9.
 - **Token:** i telefoni li registra ogni account, qualunque sia il suo stato, e li toglie uscendo. Per ora la
   sincronizzazione arriva sia dall'argomento sia dal token. La parte nativa ignora il doppione: tiene le ultime 8
   notizie.
-- **Argomenti (§4.5), con una data** (revisione di Claude 2): la 1.0.83 non si iscrive più a `c_<uid>` e ad
-  `aggiornamenti`. Il server smette di mandarci quando tutti i telefoni nell'elenco di Valerio sono alla 1.0.82 o
-  oltre, e lui lo vede dalla versione accanto a ogni telefono. Finché gli argomenti ci sono, chi conosce un uid o ha
-  un'app vecchia riceve ancora quelle notifiche.
+- **Argomenti (§4.5), con una data** (revisione di Claude 2, corretta da lui il 24/11):
+  - **`c_<uid>`:** la 1.0.83 se ne toglie e non ci si iscrive più. La sincronizzazione le arriva già al token, dal
+    #14. Il server continua a mandarci per le app fino alla 1.0.81, e smette quando tutti i telefoni nell'elenco di
+    Valerio sono alla 1.0.82 o oltre (lui lo vede dalla versione accanto a ogni telefono). Finché manda, chi conosce
+    un uid riceve ancora quelle notifiche;
+  - **`aggiornamenti` resta:** `scripts/invia-avviso.py` manda solo lì, sia la versione nuova (job `notifica`) sia i
+    contenuti nuovi (`catalogo.yml`). Toglierlo lascerebbe i telefoni senza quegli avvisi. Si toglie quando c'è
+    l'invio ai token anche per questi (§9.3: una funzione lo legge e manda, la chiave di GitHub no). Fino ad allora
+    li può ricevere chiunque si iscriva all'argomento: dicono solo «c'è una versione nuova», e l'APK è pubblico.
 - **Notifiche a Valerio:** al massimo una al minuto per account, anche per chi ritenta dopo un rifiuto. È la scelta
   di Valerio del 24/11, fatta sapendo che chi insiste può mandarne una al minuto. I tentativi restano contati
   nell'elenco.
