@@ -30,6 +30,8 @@ Telefono vero (lo riconosce da solo; --telefono-vero lo forza). Lì il giro non 
   - parte solo con --senza-account (l'app non ha l'accesso con Google: niente di quello che tocca finisce nella
     collezione in cloud) oppure --anche-con-account (lo sceglie chi ha il telefono);
   - per la durata del giro accende "non disturbare", perché le schermate prendono anche le notifiche;
+  - mette debug.eurodex.prove=1 (niente schermata del muro, anche se Valerio l'ha acceso) e alla fine rimette le
+    proprietà com'erano e riapre l'app, che le legge solo quando parte;
   - i risultati restano sul PC: contengono schermate del telefono.
   --prova   legge e scrive soltanto cosa farebbe (impostazioni, giri, ripristino), senza toccare niente.
 Sul PC non usa nessuna shell (comandi come liste di argomenti): funziona uguale su Linux e su Windows.
@@ -175,6 +177,10 @@ class Impostazioni:
     NOTTE = [('secure', 'ui_night_mode_custom_type'), ('secure', 'dark_theme_custom_start_time'),
              ('secure', 'dark_theme_custom_end_time')]
     ZEN = {'0': 'off', '1': 'priority', '2': 'none', '3': 'alarms'}   # zen_mode → cmd notification set_dnd
+    # le proprietà che l'app legge per le prove automatiche (docs/progetto-accesso-su-approvazione.md, §9.7 B): durante
+    # il giro la schermata del muro non si mostra anche se Valerio l'ha acceso, e il muro non è forzato su questo
+    # telefono. Le scrive solo adb e durano fino al riavvio: si leggono all'inizio e si rimettono come le altre
+    PROPRIETA = {'debug.eurodex.prove': '1', 'debug.eurodex.muro': 'no'}
 
     def __init__(self):
         self.prima = None
@@ -182,13 +188,26 @@ class Impostazioni:
         # "non disturbare" acceso dal giro: solo allora alla fine si spegne. Se era già acceso (magari da un orario di
         # chi usa il telefono) non si tocca: rimetterlo a mano lo lascerebbe acceso anche dopo la fine dell'orario
         self.dnd_nostro = False
+        self.proprieta_messe = False
 
     @staticmethod
-    def _semplice(spazio, chiave):
-        v = adb_shell('settings', 'get', spazio, chiave, timeout=30).strip()
-        if v == 'null':
-            return ('assente', None)
+    def _valore(v):
+        """Un valore letto: 'TIMEOUT' ed 'ERRORE: …' sono di sul_pc, non del telefono (sembravano valori validi, e alla
+        fine si sarebbero scritti al posto di quello vero)."""
+        if v == 'TIMEOUT' or v.startswith('ERRORE:'):
+            return ('sconosciuto', v[:80])
         return ('valore', v) if re.fullmatch(r'[A-Za-z0-9_.:,+-]{1,64}', v) else ('sconosciuto', v[:80])
+
+    @classmethod
+    def _semplice(cls, spazio, chiave):
+        v = adb_shell('settings', 'get', spazio, chiave, timeout=30).strip()
+        return ('assente', None) if v == 'null' else cls._valore(v)
+
+    @classmethod
+    def _proprieta(cls, nome):
+        # getprop scrive una riga vuota sia per una proprietà che non c'è sia per una vuota: per l'app sono uguali
+        v = adb_shell('getprop', nome, timeout=30).strip()
+        return ('assente', None) if v == '' else cls._valore(v)
 
     @staticmethod
     def _wm(cosa):
@@ -208,13 +227,15 @@ class Impostazioni:
             return self._wm(nome[3:])
         if nome == 'notte':
             return self._notte()
+        if nome in self.PROPRIETA:
+            return self._proprieta(nome)
         spazio, chiave = {'zen': ('global', 'zen_mode'), 'aereo': ('global', 'airplane_mode_on'),
                           'wifi': ('global', 'wifi_on')}.get(nome) or nome.split('/')
         return self._semplice(spazio, chiave)
 
     def nomi(self):
         return (['wm_size', 'wm_density', 'notte'] + [f'{s}/{k}' for s, k in self.NOTTE + self.SEMPLICI] +
-                ['zen', 'aereo', 'wifi'])
+                ['zen', 'aereo', 'wifi'] + list(self.PROPRIETA))
 
     def leggi(self):
         self.prima = {n: self._leggi(n) for n in self.nomi()}
@@ -233,6 +254,8 @@ class Impostazioni:
             return ['cmd', 'connectivity', 'airplane-mode', 'enable' if v == '1' else 'disable']
         if nome == 'wifi':
             return ['svc', 'wifi', 'disable' if v == '0' else 'enable']
+        if nome in self.PROPRIETA:   # una proprietà non si cancella: vuota, per l'app è come se non ci fosse
+            return ['setprop', nome, v if tipo == 'valore' else '']
         spazio, chiave = nome.split('/')
         return ['settings', 'put', spazio, chiave, v] if tipo == 'valore' else ['settings', 'delete', spazio, chiave]
 
@@ -263,8 +286,21 @@ class Impostazioni:
             return []
         self.chiuso = True
         mancate = self.rimetti(*self.nomi())
+        if self.proprieta_messe and TELEFONO_VERO:
+            # l'app legge le proprietà solo quando parte: si riapre, così da adesso vale quello che c'era prima del giro.
+            # Riaperta e non solo chiusa: un'app chiusa con force-stop non riceve sveglie e notifiche finché non si apre
+            adb_shell('am', 'force-stop', PKG, timeout=30)
+            adb_shell('am', 'start', '-n', f'{PKG}/.MainActivity', timeout=30)
         log('Impostazioni rimesse com\'erano.' if not mancate else f'!! Impostazioni NON rimesse: {", ".join(mancate)}')
         return mancate
+
+    def metti_proprieta(self):
+        """Le proprietà per le prove, per la durata del giro (le versioni dell'app fino alla 1.0.82 non le leggono)."""
+        self.proprieta_messe = True
+        for nome, valore in self.PROPRIETA.items():
+            adb_shell('setprop', nome, valore, timeout=30)
+        log('Proprietà per le prove: ' + ', '.join(f'{n}={v}' for n, v in self.PROPRIETA.items()) +
+            ' (la schermata del muro non si mostra; alla fine si rimettono)')
 
     def piano(self):
         """--prova: cosa farebbe il giro, senza toccare niente."""
@@ -275,6 +311,10 @@ class Impostazioni:
         print('Giri con impostazioni diverse (dopo ognuno si rimette tutto com\'era):')
         for nome, cosa, _, _ in GIRI:
             print(f'  {nome}: {cosa}')
+        print('Proprietà per le prove, per la durata del giro: ' +
+              ', '.join(f'{n}={v}' for n, v in self.PROPRIETA.items()) +
+              ' (la schermata del muro non si mostra; le versioni fino alla 1.0.82 non le leggono)' +
+              ('; alla fine si rimettono e l\'app si riapre per rileggerle' if TELEFONO_VERO else ''))
         if TELEFONO_VERO:
             print('Telefono vero: schermo sempre acceso e "non disturbare" per la durata del giro;')
             print(f'  dati dell\'app: {"cancellati con pm clear" if "--cancella-dati" in OPZIONI else "non cancellati (serve --cancella-dati)"};')
@@ -1441,6 +1481,7 @@ def main():
     try:
         if TELEFONO_VERO:
             prepara_telefono_vero()
+        IMP.metti_proprieta()
         giro()
     except SystemExit as e:
         if isinstance(e.code, str):

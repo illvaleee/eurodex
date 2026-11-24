@@ -46,6 +46,13 @@ elif a[:1] == ['shell']:
         st, g = s['impostazioni'], s
         if p[:1] == ['getprop']:
             out = g['prop'].get(p[1], '')
+        elif p[:1] == ['setprop']:
+            if len(p) != 3:                 # come toolbox: senza il valore (anche vuoto) non cambia niente
+                out = 'usage: setprop NAME VALUE'
+            elif p[2]:
+                g['prop'][p[1]] = p[2]
+            else:                           # vuota: per getprop (e per l'app) è come se non ci fosse
+                g['prop'].pop(p[1], None)
         elif p[:2] == ['wm', 'size'] or p[:2] == ['wm', 'density']:
             cosa = p[1]
             if len(p) == 2:
@@ -83,6 +90,8 @@ elif a[:1] == ['shell']:
             st['global']['wifi_on'] = '0'
             out = 'Events injected: 3000'
         elif p[:2] == ['am', 'start']:
+            # con quali proprietà parte l'app: le legge solo all'avvio
+            s.setdefault('avvii', []).append({k: v for k, v in g['prop'].items() if k.startswith('debug.eurodex.')})
             out = 'Status: ok\nTotalTime: 420'
         elif p[:1] == ['pidof']:
             out = '4242'
@@ -132,6 +141,7 @@ def stato():
 def senza_chiamate(s):
     s = copy.deepcopy(s)
     s.pop('chiamate')
+    s.pop('avvii', None)
     return s
 
 
@@ -141,7 +151,9 @@ def comandi(s):
 
 
 MODIFICANO = ('settings put', 'settings delete', 'wm size 7', 'wm size 1', 'wm size r', 'wm density 3', 'wm density r',
-              'cmd uimode night y', 'cmd uimode night n', 'set_dnd', 'svc ', 'pm clear', 'monkey', 'airplane-mode')
+              'cmd uimode night y', 'cmd uimode night n', 'set_dnd', 'svc ', 'pm clear', 'monkey', 'airplane-mode',
+              'setprop')
+PER_LE_PROVE = {'debug.eurodex.prove': '1', 'debug.eurodex.muro': 'no'}
 
 
 def esploratore(*opzioni):
@@ -166,6 +178,8 @@ s = stato()
 ok(r.returncode == 0 and 'telefono vero' in r.stdout and 'Con --prova non è stato cambiato niente' in r.stdout,
    f'--prova: riconosce il telefono vero e scrive il piano (uscita {r.returncode})')
 ok('wm_density: 272' in r.stdout and 'notte: custom_bedtime' in r.stdout, '--prova: legge densità 272 e tema scuro programmato')
+ok('debug.eurodex.prove: assente' in r.stdout and 'debug.eurodex.prove=1, debug.eurodex.muro=no' in r.stdout,
+   '--prova: legge le proprietà per le prove e dice quali metterebbe')
 ok(senza_chiamate(s) == senza_chiamate(VALERIO), '--prova: il telefono resta com\'era')
 ok(not [c for c in comandi(s) if c.startswith(MODIFICANO)], '--prova: nessun comando che cambia qualcosa')
 
@@ -209,6 +223,10 @@ ok(not any(c.startswith('pm clear') for c in comandi(s)), 'senza --cancella-dati
 ok(not any(c.startswith('monkey') for c in comandi(s)), 'senza --monkey niente stress test')
 ok(not any('wm density reset' in c or 'cmd uimode night no' in c for c in comandi(s)),
    'niente impostazioni di fabbrica: si rimettono quelle lette')
+avvii = s.get('avvii', [])
+ok(len(avvii) >= 2 and all(a == PER_LE_PROVE for a in avvii[:-1]) and avvii[-1] == {},
+   f'l\'app parte sempre con debug.eurodex.prove=1 e muro=no, e alla fine si riapre senza ({len(avvii)} avvii, '
+   f'l\'ultimo con {avvii[-1] if avvii else "-"})')
 
 # 4. con --monkey: lo stress test apre le impostazioni rapide (aereo acceso, Wi-Fi spento) e si rimettono
 telefono(VALERIO)
@@ -317,6 +335,11 @@ s = stato()
 ok(any(c.startswith('pm clear') for c in comandi(s)) and any(c.startswith('monkey') and 'pct-anyevent' not in c for c in comandi(s)),
    'emulatore: pm clear e monkey come prima')
 ok(not any('set_dnd' in c or 'stayon' in c for c in comandi(s)), 'emulatore: niente "non disturbare" né schermo acceso')
+c = comandi(s)
+avvii = s.get('avvii', [])
+ok(avvii and all(a == PER_LE_PROVE for a in avvii) and senza_chiamate(s)['prop'] == EMULATORE['prop'] and
+   max(i for i, x in enumerate(c) if x.startswith('am start')) < max(i for i, x in enumerate(c) if x.startswith('setprop')),
+   'emulatore: l\'app parte con le proprietà per le prove, che alla fine si rimettono (senza riaprire l\'app)')
 
 # 10b. "non disturbare" già acceso all'inizio (per esempio da un orario): il giro non lo tocca mai
 ORARIO = copy.deepcopy(VALERIO)
@@ -340,6 +363,45 @@ s = stato()
 ok(not any('set_dnd' in c for c in comandi(s)) and s['impostazioni']['global']['zen_mode'] == '1',
    '"non disturbare" già acceso (anche da un orario): nessun set_dnd, resta com\'era')
 ok(senza_chiamate(s) == senza_chiamate(ORARIO), 'e alla fine il resto è com\'era')
+
+# 10c. proprietà già messe da qualcuno prima del giro: durante il giro valgono quelle per le prove, alla fine tornano le sue
+MESSE = copy.deepcopy(VALERIO)
+MESSE['prop'].update({'debug.eurodex.prove': '0', 'debug.eurodex.muro': 'acceso'})
+telefono(MESSE)
+E = carica('--senza-account')
+E.giro = lambda: E.avvia(freddo=True)
+try:
+    E.main()
+except SystemExit:
+    pass
+s = stato()
+avvii = s.get('avvii', [])
+ok(len(avvii) == 2 and avvii[0] == PER_LE_PROVE and avvii[1] == {'debug.eurodex.prove': '0', 'debug.eurodex.muro': 'acceso'},
+   f'proprietà già messe: durante il giro prove=1 e muro=no, poi l\'app si riapre con le sue ({avvii})')
+ok(senza_chiamate(s) == senza_chiamate(MESSE), 'e alla fine sono com\'erano (muro=acceso, prove=0)')
+
+# 10d. una lettura scaduta (TIMEOUT di sul_pc) non diventa un valore da rimettere: prima passava per un valore valido
+telefono(VALERIO)
+E = carica('--senza-account')
+adb_vero = E.adb_shell
+
+
+def adb_lento(*parti, timeout=120):
+    if parti[:2] == ('getprop', 'debug.eurodex.muro') or parti[:4] == ('settings', 'get', 'system', 'screen_off_timeout'):
+        return 'TIMEOUT'
+    return adb_vero(*parti, timeout=timeout)
+
+
+E.adb_shell = adb_lento
+E.IMP.leggi()
+E.adb_shell = adb_vero
+ok(E.IMP.prima['system/screen_off_timeout'][0] == 'sconosciuto' and E.IMP.prima['debug.eurodex.muro'][0] == 'sconosciuto',
+   'lettura scaduta: «sconosciuto», non il valore «TIMEOUT»')
+E.IMP.metti_proprieta()
+E.IMP.rimetti_tutto()
+s = stato()
+ok(not any('TIMEOUT' in c for c in comandi(s)) and s['impostazioni']['system']['screen_off_timeout'] == '30000',
+   'e alla fine non si scrive «TIMEOUT» al posto dell\'impostazione vera')
 
 # 11. sul PC nessuna shell: niente shell=True, niente > o | fuori da "adb shell"/"exec-out"
 sorgente = open(ESPLORATORE, encoding='utf-8').read()
