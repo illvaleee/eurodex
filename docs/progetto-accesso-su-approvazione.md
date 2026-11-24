@@ -335,3 +335,49 @@ Accesso solo con Google anche nelle regole: `conGoogle()` in `create`, in `appro
 Tutto si regge sull'account Google di Valerio (`admin()`) e su quello GitHub, dove lui è il revisore di
 `pubblicazione`. Su tutti e due serve la **verifica in due passaggi**: Claude 3 l'ha chiesto a Valerio, che ha
 risposto di averla ("sì, ce l'ho", 21/11). Claude 3 gli ha chiesto di avvisare se manca su uno dei due.
+
+## 10. Scelte di Valerio del 21/11, in #14: cosa cambia
+
+Dopo la prima versione, Valerio ha chiesto il controllo di ogni tentativo. Valgono queste regole, al posto delle parti
+diverse di §4 e §9.
+
+### 10.1 Ogni accesso con Google è un tentativo
+- **Quando nasce un tentativo:** a ogni accesso con Google fatto dalla persona, che sia dal muro, dalle impostazioni o
+  dopo una reinstallazione. Si aggiungono «Chiedi di nuovo» e il primo avvio con la 1.0.82 di chi usava già Eurodex.
+  Gli accessi che l'app rifà da sola non contano, e nemmeno gli aggiornamenti, che non fanno uscire dall'account.
+- **Cosa scrive l'app:** `accessi/{uid}/tentativi/{tid}`, con solo il telefono, il motivo (`accesso`, `ancora`,
+  `primo`) e l'ora del server. Le richieste (`accessi/{uid}`) non le scrive più l'app: `allow create: if false`.
+- **La funzione `tentativoDiAccesso`**, in una transazione:
+  - **account nuovo:** crea la richiesta in attesa, con nome ed email presi da Authentication, e la notifica a
+    Valerio parte da `avvisaValerio`;
+  - **già deciso:** la decisione resta. Si aggiornano telefono, ora (`ultimoTentativo`) e numero di tentativi, e a
+    Valerio arriva «Accesso approvato in automatico» oppure «Accesso rifiutato in automatico». Se è ancora in
+    attesa, «Richiesta di accesso… ancora in attesa»;
+  - **al massimo una notifica al minuto per account** (campo `avvisato`);
+  - **l'account di Valerio** non entra mai nell'elenco.
+- **Valerio può sempre cambiare idea**, per qualsiasi account: approvare chi aveva rifiutato e togliere chi aveva
+  approvato.
+
+### 10.2 Muro spento ed esclusi
+- **Muro spento:** tutti dentro tranne gli account rifiutati o con l'accesso tolto. Nelle regole è
+  `puoUsare = admin() || approvato() || (!accessoObbligatorio() && !escluso(uid))`, e nell'app compare la schermata
+  del no anche col muro spento.
+- **Muro acceso:** come prima, dentro solo gli approvati. In più, uscendo dall'account si torna subito alla schermata
+  di accesso.
+
+### 10.3 Revoca e notifiche
+- **Revoca:** a chi perde l'accesso arriva una notifica (tipo `tolto`), poi le sessioni si chiudono. I token dei
+  telefoni **restano**: chi ritenta e viene riapprovato riceve la notifica. Un account escluso non riceve altro,
+  perché non può scrivere eventi. Questo sostituisce il «toglie i token» di §4.7.
+- **Token:** i telefoni li registra ogni account, qualunque sia il suo stato, e li toglie uscendo. Per ora la
+  sincronizzazione arriva sia dall'argomento sia dal token. La parte nativa ignora il doppione, e la disiscrizione
+  dagli argomenti di §4.5 resta un passo successivo.
+
+### 10.4 La sezione di Valerio e la schermata di accesso
+- **Sezione di Valerio:** contiene tutti gli account che hanno fatto l'accesso, divisi in in attesa, approvati e non
+  approvati. Per ognuno: ultimo accesso con telefono, numero di accessi e telefoni della sincronizzazione
+  (`collezioni/*/dispositivi`, che Valerio legge e basta), con versione e ultima apertura.
+- **Schermata di accesso:**
+  - dopo l'accesso, direttamente «Richiesta inviata»;
+  - per chi è rifiutato, «Accesso non approvato», e per chi non ha più l'accesso, «Accesso tolto»;
+  - tutte e due hanno «Chiedi di nuovo», premibile una volta al minuto, e «Usa un altro account».
