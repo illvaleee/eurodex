@@ -131,6 +131,28 @@ public class NativoPlugin extends Plugin {
         call.resolve(r);
     }
 
+    /**
+     * Le prove automatiche (telefono simulato della CI, o un telefono collegato con adb) lo dicono con due proprietà
+     * di sistema, che scrive solo la shell di adb: debug.eurodex.prove=1 non mostra la schermata del muro (indirizzi
+     * e regole restano quelli veri), debug.eurodex.muro=acceso fa valere il muro acceso solo su questo telefono.
+     */
+    @PluginMethod
+    public void modoProve(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("prove", "1".equals(proprieta("debug.eurodex.prove")));
+        r.put("muro", proprieta("debug.eurodex.muro"));
+        call.resolve(r);
+    }
+
+    private static String proprieta(String nome) {
+        try {
+            Object v = Class.forName("android.os.SystemProperties").getMethod("get", String.class).invoke(null, nome);
+            return v instanceof String ? ((String) v).trim() : "";
+        } catch (Throwable e) {
+            return "";
+        }
+    }
+
     @PluginMethod
     public void impostaSync(PluginCall call) {
         String cid = call.getString("cid", ""), did = call.getString("did", ""), nome = call.getString("nome", "");

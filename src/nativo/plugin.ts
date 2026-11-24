@@ -3,6 +3,8 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor
 /** Il plugin Android dell'app (native/NativoPlugin.java): ogni metodo qui corrisponde a un @PluginMethod. */
 export interface NativoPlugin {
   infoDispositivo(): Promise<InfoDispositivo>;
+  /** Le prove automatiche via adb: `prove` non mostra il muro, `muro` = 'acceso' lo fa valere acceso qui. */
+  modoProve(): Promise<{ prove: boolean; muro: string }>;
   accediGoogle(o?: { silenzioso?: boolean }): Promise<{ idToken: string; email?: string; nome?: string }>;
   impostaSync(o: { cid: string; did?: string; nome?: string }): Promise<void>;
   scrivi(o: { testo: string }): Promise<void>;
