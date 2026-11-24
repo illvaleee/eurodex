@@ -5,9 +5,11 @@
  * native/ScaricaDati.java), mentre rev ne ha 12 (AAAAMMGGhhmm). N sono i minuti dal 1° gennaio 2020: cresce a ogni
  * pubblicazione e resta di 9 cifre per quasi duemila anni. Se l'indice già pubblicato ha gli stessi dati (stesso rev)
  * si riusano i suoi nomi: una seconda pubblicazione degli stessi dati non cambia niente.
- * Si tengono anche i file dell'indice di prima, per chi l'ha appena letto.
+ * Si tengono anche i file dell'indice di prima, per chi l'ha appena letto. `stessi`: la pagina ha già questi dati,
+ * con nomi che le app accettano (allora non si pubblica niente e non parte nessuna notifica).
  *
- * Uso (catalogo.yml): node scripts/nomi-pubblicazione.mjs REV INDICE_PUBBLICATO  →  "N file-da-tenere..."
+ * Uso (catalogo.yml): node scripts/nomi-pubblicazione.mjs REV INDICE_PUBBLICATO
+ *   →  "N stessi|nuovi file-da-tenere..."
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -23,10 +25,10 @@ export function nomiPubblicazione(rev, pubblicato, adesso = Date.now()) {
   const tenere = [f.catalogo, f.schede].filter(x => typeof x === 'string' && DA_TENERE.test(x));
   const m = typeof f.catalogo === 'string' ? /^catalog-([0-9]{1,9})\.json$/.exec(f.catalogo) : null;
   const stessi = m !== null && f.schede === `details-${m[1]}.json` && String(pubblicato.rev) === String(rev);
-  if (stessi) return { numero: m[1], tenere };
+  if (stessi) return { numero: m[1], tenere, stessi: true };
   // dati diversi pubblicati nello stesso minuto: un numero nuovo, perché la cache di GitHub non dia quelli di prima
   // (revisione di Claude 2 su #15)
-  return { numero: m !== null && m[1] === nuovo ? String(Number(nuovo) + 1) : nuovo, tenere };
+  return { numero: m !== null && m[1] === nuovo ? String(Number(nuovo) + 1) : nuovo, tenere, stessi: false };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -36,7 +38,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   } catch {
     // prima pubblicazione, o indice illeggibile: numero nuovo e niente da tenere
   }
-  const { numero, tenere } = nomiPubblicazione(process.argv[2], pubblicato);
+  const { numero, tenere, stessi } = nomiPubblicazione(process.argv[2], pubblicato);
   if (!/^[0-9]{1,9}$/.test(numero)) process.exit(1);
-  console.log([numero, ...tenere].join(' '));
+  console.log([numero, stessi ? 'stessi' : 'nuovi', ...tenere].join(' '));
 }

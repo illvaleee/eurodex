@@ -12,7 +12,8 @@ describe('nomi dei file sulla pagina di download', () => {
       rev: 202611192255,
       file: { catalogo: 'catalog-202611192255.json', schede: 'details-202611192255.json' },
     };
-    const { numero, tenere } = nomiPubblicazione('202611231607', vecchio, LUNEDI);
+    const { numero, tenere, stessi } = nomiPubblicazione('202611231607', vecchio, LUNEDI);
+    expect(stessi).toBe(false);
     expect(numero).toBe(String((LUNEDI - Date.UTC(2020, 0, 1)) / 60000));
     expect(passa(numero)).toBe(true);
     // i file dell'indice di prima restano, per chi l'ha appena letto (anche con i nomi vecchi a 12 cifre)
@@ -33,7 +34,10 @@ describe('nomi dei file sulla pagina di download', () => {
       rev: 202611231607,
       file: { catalogo: 'catalog-3634567.json', schede: 'details-3634567.json' },
     };
-    expect(nomiPubblicazione('202611231607', pubblicato, LUNEDI + 3600000).numero).toBe('3634567');
+    expect(nomiPubblicazione('202611231607', pubblicato, LUNEDI + 3600000)).toMatchObject({
+      numero: '3634567',
+      stessi: true,
+    });
     // dati diversi: numero nuovo
     expect(nomiPubblicazione('202611301607', pubblicato, LUNEDI).numero).not.toBe('3634567');
     // stessi dati ma con i nomi vecchi a 12 cifre (che la 1.0.81 rifiuta): numero nuovo
@@ -41,7 +45,10 @@ describe('nomi dei file sulla pagina di download', () => {
       rev: 202611231607,
       file: { catalogo: 'catalog-202611231607.json', schede: 'details-202611231607.json' },
     };
-    expect(passa(nomiPubblicazione('202611231607', vecchio, LUNEDI).numero)).toBe(true);
+    const r = nomiPubblicazione('202611231607', vecchio, LUNEDI);
+    // la pagina non è "aggiornata" finché i nomi non vanno bene per le app: si ripubblica
+    expect(r.stessi).toBe(false);
+    expect(passa(r.numero)).toBe(true);
   });
 
   it('dati diversi nello stesso minuto: un numero diverso da quello pubblicato', () => {

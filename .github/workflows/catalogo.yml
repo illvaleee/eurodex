@@ -26,6 +26,10 @@ on:
         description: 'Solo prova (poche richieste: mostra la forma delle risposte e le monete nuove trovate)'
         type: boolean
         default: false
+      solo_pubblica:
+        description: 'Solo pubblica: rimette sulla pagina di download i dati già su main, senza scaricare niente'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -44,7 +48,7 @@ concurrency:
 jobs:
   scarica:
     # solo nel progetto vero, e con i soli segreti del catalogo (environment "catalogo"); mai la chiave di firma
-    if: ${{ github.repository == 'illvaleee/eurodex' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.repository == 'illvaleee/eurodex' && github.ref == 'refs/heads/main' && !inputs.solo_pubblica }}
     environment: catalogo
     permissions:
       contents: read
@@ -133,7 +137,9 @@ jobs:
 
   pubblica:
     needs: scarica
-    if: ${{ !cancelled() && needs.scarica.result != 'skipped' }}
+    if: >-
+      ${{ !cancelled() && github.repository == 'illvaleee/eurodex' && github.ref == 'refs/heads/main'
+      && (needs.scarica.result != 'skipped' || inputs.solo_pubblica) }}
     environment: catalogo
     permissions:
       contents: write
@@ -168,9 +174,12 @@ jobs:
             git commit -q --allow-empty -m "Promemoria: il catalogo si aggiorna ancora ogni settimana [skip ci]" && git push -q origin main
           else echo "Ultimo commit recente: niente promemoria"; fi
 
+      # si pubblica quando la pagina è indietro rispetto a main, non solo quando questo giro ha trovato dati nuovi:
+      # così un giro fermato a metà si ripara da solo al giro dopo (revisione di Claude 2 su #15). I dati di main sono
+      # sempre già controllati (il catalogo si salva solo se tutti i passaggi di "scarica" sono andati bene)
       - name: Pubblica i dati nuovi (le app li scaricano da sole, senza installare niente)
         id: dati
-        if: ${{ needs.scarica.outputs.pubblica == 'si' }}
+        if: ${{ !inputs.prova }}
         env:
           DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
         run: |
@@ -209,8 +218,10 @@ jobs:
             # GitHub, quindi chi scarica subito dopo la notifica prende davvero quelli nuovi. N ha al massimo 9 cifre,
             # come accettano le app dalla 1.0.81 (scripts/nomi-pubblicazione.mjs). Si tengono i file dell'indice di
             # prima (per chi l'ha appena letto) e i nomi semplici per le versioni vecchie.
-            read -r N TENERE <<< "$(node scripts/nomi-pubblicazione.mjs "$REV" /tmp/dl/dati/indice.json)"
+            read -r N STATO TENERE <<< "$(node scripts/nomi-pubblicazione.mjs "$REV" /tmp/dl/dati/indice.json)"
             [[ "$N" =~ ^[0-9]{1,9}$ ]] || { echo "::error title=Dati::numero dei file non valido"; exit 1; }
+            # la pagina ha già questi dati, con nomi che le app accettano: niente da pubblicare, nessuna notifica
+            if [ "$STATO" = stessi ]; then echo "La pagina è già aggiornata (dati $REV)"; echo "pubblicati=no" >> "$GITHUB_OUTPUT"; exit 0; fi
             mkdir -p /tmp/dl/dati && find /tmp/dl/dati -mindepth 1 -maxdepth 1 ! -name 'catalog-*.json' ! -name 'details-*.json' -exec rm -rf {} +
             cp www/data/catalog.json www/data/details.json www/data/indice.json /tmp/dl/dati/ && cp -r www/data/img /tmp/dl/dati/img
             cp www/data/catalog.json "/tmp/dl/dati/catalog-$N.json" && cp www/data/details.json "/tmp/dl/dati/details-$N.json"
@@ -219,7 +230,7 @@ jobs:
             done)
             python3 -c 'import json,sys;r=sys.argv[1];p="/tmp/dl/dati/indice.json";j=json.load(open(p));j["file"]={"catalogo":f"catalog-{r}.json","schede":f"details-{r}.json"};json.dump(j,open(p,"w"),ensure_ascii=False,separators=(",",":"))' "$N"
             git -C /tmp/dl add -A dati
-            if git -C /tmp/dl diff --cached --quiet; then echo "Dati già pubblicati"; echo "pubblicati=si" >> "$GITHUB_OUTPUT"; exit 0; fi
+            if git -C /tmp/dl diff --cached --quiet; then echo "Dati già pubblicati"; echo "pubblicati=no" >> "$GITHUB_OUTPUT"; exit 0; fi
             git -C /tmp/dl -c user.name=eurodex -c user.email=eurodex@users.noreply.github.com commit -qm "Dati $REV"
             if git -C /tmp/dl push -q origin main; then echo "Dati pubblicati"; echo "pubblicati=si" >> "$GITHUB_OUTPUT"; exit 0; fi
             echo "Non è andata, riprovo tra 20 secondi ($i/3)"; sleep 20
