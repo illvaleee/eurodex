@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { decidiMuro, indirizzoConfig, obbligoDaDocumento, pulitoPerRichiesta } from '../src/sync/muro-logica';
+import {
+  decidiMuro,
+  esitoTentativo,
+  indirizzoConfig,
+  obbligoDaDocumento,
+  pulitoPerRichiesta,
+} from '../src/sync/muro-logica';
 
 describe('muro: cosa vede chi apre l’app', () => {
   const base = { obbligo: true, uid: 'abc', admin: false, stato: 'nessuno' as const };
@@ -69,5 +75,15 @@ describe('muro: nome e telefono nella richiesta', () => {
     expect(pulitoPerRichiesta('Mario‮\nRossi')).toBe('MarioRossi');
     expect(pulitoPerRichiesta('x'.repeat(100))).toHaveLength(80);
     expect(pulitoPerRichiesta('Lucìa Pérez 🪙')).toBe('Lucìa Pérez 🪙');
+  });
+});
+
+describe('muro: come finisce un tentativo di accesso', () => {
+  it('rimandato (già scritto) conta come scritto; troppo presto (limite di 20 secondi) non è un errore di rete', () => {
+    expect(esitoTentativo(undefined)).toBe('no');
+    expect(esitoTentativo('already-exists')).toBe('ok');
+    expect(esitoTentativo('permission-denied')).toBe('presto');
+    expect(esitoTentativo('unavailable')).toBe('no');
+    expect(esitoTentativo('deadline-exceeded')).toBe('no');
   });
 });

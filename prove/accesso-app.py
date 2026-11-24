@@ -71,6 +71,15 @@ def tentativi(uid):
     return int(richiesta(uid).get('tentativi') or 0)
 
 
+def ultimo_tentativo(uid, secondi_fa):
+    """Come se la funzione avesse registrato l'ultimo tentativo `secondi_fa` secondi fa: le regole ne accettano al
+    massimo uno ogni 20 secondi per account, e così la prova non aspetta."""
+    quando = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - secondi_fa))
+    st, _ = rest('PATCH', f'{FS}/accessi/{uid}?updateMask.fieldPaths=ultimoTentativo&currentDocument.exists=true',
+                 {'fields': {'ultimoTentativo': {'timestampValue': quando}}})
+    return st == 200
+
+
 def muro_acceso():
     st, j = rest('GET', f'{FS}/config/accesso')
     return st == 200 and j.get('fields', {}).get('obbligatorio', {}).get('booleanValue') is True
@@ -254,6 +263,8 @@ async def main():
            and await L.evaluate("!!document.querySelector('#muro [data-act=\"muroesci\"]')"),
            'con «Chiedi di nuovo» e «Usa un altro account»')
         await foto(L, '6_lucia_rifiutata')
+        ok(ultimo_tentativo(LUC, 30), '(come se fossero passati 20 secondi dal suo accesso: il server ne accetta uno ogni 20)')
+        await L.wait_for_timeout(1500)   # la pagina riceve la modifica della sua richiesta e ridisegna: si tocca dopo
         prima = tentativi(LUC)
         await L.click('#muro [data-act="muroancora"]')
         ok(await aspetta(lambda: asyncio.sleep(0, tentativi(LUC) == prima + 1), 20),
@@ -279,6 +290,8 @@ async def main():
             await L.click('.dlg.show button:has-text("Esci")')
         ok(await aspetta(lambda: L.evaluate("!!document.querySelector('#muro [data-act=\"muroaccedi\"]')"), 15),
            'Lucia esce dall\'account: subito la schermata «Accedi con Google» (col muro acceso)')
+        ok(ultimo_tentativo(LUC, 30), '(e 20 secondi dopo la sua ultima richiesta)')
+        await L.wait_for_timeout(1500)
         prima = tentativi(LUC)
         await L.click('#muro [data-act="muroaccedi"]')
         ok(await aspetta(lambda: L.evaluate('!document.querySelector("#muro")'), 20), 'rientra con lo stesso account: l\'app si apre')
@@ -307,9 +320,17 @@ async def main():
         ok(await sul_muro(M, 'Accesso tolto'), 'Mario (accesso tolto) resta fuori anche col muro spento')
         await L.evaluate('__eurodex.muro.aggiorna()')
         ok(not await L.evaluate('!!document.querySelector("#muro")'), 'Lucia (approvata) dentro')
+        # subito dopo un altro tentativo (per esempio un accesso di pochi secondi fa) il server rifiuta quello nuovo:
+        # l'app non parla di rete, dice che la richiesta c'è già
+        ok(ultimo_tentativo(MAR, 0), '(come se Mario avesse appena mandato un tentativo)')
+        await M.wait_for_timeout(1500)
         prima = tentativi(MAR)
         await M.click('#muro [data-act="muroancora"]')
-        ok(await aspetta(lambda: asyncio.sleep(0, tentativi(MAR) == prima + 1), 20), 'Mario chiede di nuovo')
+        ok(await aspetta(lambda: M.evaluate(
+            "(document.querySelector('.toast.show')||{}).innerText?.includes('già inviata') || false"), 8),
+           'Mario chiede di nuovo subito dopo: «Richiesta già inviata ✓», non «sei connesso a internet?»')
+        ok(tentativi(MAR) == prima and await M.evaluate("!!document.querySelector('#muro [data-act=\"muroancora\"][disabled]')"),
+           'il tentativo in più non si conta, e il pulsante diventa «Richiesta inviata ✓»')
         await approva(MAR, 'mario@example.com')
         ok(await aspetta(lambda: M.evaluate('!document.querySelector("#muro")'), 20), 'Valerio lo riapprova: Mario rientra')
         t = await lista()

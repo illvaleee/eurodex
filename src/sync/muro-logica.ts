@@ -59,3 +59,18 @@ export const pulitoPerRichiesta = (x: string): string =>
     .replace(/[@\p{Cc}\p{Cf}]/gu, '')
     .trim()
     .slice(0, 80);
+
+/** Come finisce un tentativo di accesso, dal codice dell'errore di Firestore (nessun errore: scritto). */
+export type EsitoTentativo = 'ok' | 'presto' | 'no';
+
+/**
+ * - `already-exists`: è la stessa scrittura rimandata (l'accesso rifatto subito dopo dalla sincronizzazione), quindi c'è;
+ * - `permission-denied`: le regole accettano un tentativo ogni 20 secondi per account, e quello di prima c'è già (Valerio
+ *   lo vede). Gli altri motivi di rifiuto l'app non li manda: accesso con Google, il suo account, telefono pulito;
+ * - il resto (per esempio senza rete): non scritto.
+ */
+export function esitoTentativo(codice: unknown): EsitoTentativo {
+  if (codice === 'already-exists') return 'ok';
+  if (codice === 'permission-denied') return 'presto';
+  return 'no';
+}

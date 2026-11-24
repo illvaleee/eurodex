@@ -95,6 +95,15 @@ def rimetti_avvisato_vecchio(uid):
     return http('POST', f'{FS}:commit', corpo)[0]
 
 
+def ultimo_tentativo(uid, secondi_fa):
+    """Come se l'ultimo tentativo registrato dalla funzione fosse di `secondi_fa` secondi fa: le regole ne accettano al
+    massimo uno ogni 20 secondi per account, e così la prova non aspetta."""
+    quando = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - secondi_fa))
+    corpo = {'writes': [{'update': {'name': f'{BASE}/accessi/{uid}', 'fields': {'ultimoTentativo': {'timestampValue': quando}}},
+                         'updateMask': {'fieldPaths': ['ultimoTentativo']}}]}
+    return http('POST', f'{FS}:commit', corpo)[0]
+
+
 http('DELETE', f'http://127.0.0.1:8080/emulator/v1/projects/{P}/databases/(default)/documents')
 http('DELETE', f'http://127.0.0.1:9099/emulator/v1/projects/{P}/accounts')
 MAR, t_mar = utente('mario', 'mario@example.com', 'Mario Bianchi')
@@ -113,6 +122,9 @@ ok(aspetta(lambda: tentativi_rimasti(MAR) == 0, 20) is not None, 'il tentativo s
 # ── Valerio approva; Mario riaccede (per esempio dopo una reinstallazione): resta approvato ──
 ok(decide(MAR, 'approvato') == 200, 'Valerio approva Mario')
 avvisato_prima = (richiesta(MAR) or {}).get('avvisato')
+ok(ultimo_tentativo(MAR, 0) == 200 and tentativo(t_mar, MAR, dispositivo='Pixel 8') == 403,
+   'subito dopo un tentativo, il server ne rifiuta un altro (al massimo uno ogni 20 secondi per account)')
+ok(ultimo_tentativo(MAR, 30) == 200, '(come se fossero passati 20 secondi)')
 ok(tentativo(t_mar, MAR, dispositivo='Pixel 8') == 200, 'Mario riaccede da un altro telefono')
 r = aspetta(lambda: (lambda x: x if x and str(x.get('tentativi')) == '2' else None)(richiesta(MAR))) or {}
 ok(r.get('stato') == 'approvato', 'resta approvato (approvato in automatico)')
@@ -120,6 +132,7 @@ ok(r.get('dispositivo') == 'Pixel 8', 'con il telefono nuovo')
 ok(r.get('avvisato') == avvisato_prima, 'appena dopo un\'altra notifica: niente (al massimo una al minuto)')
 ok(rimetti_avvisato_vecchio(MAR) == 200, '(come se fosse passato un minuto)')
 vecchio = (richiesta(MAR) or {}).get('avvisato')
+ok(ultimo_tentativo(MAR, 30) == 200, '(e 20 secondi dopo il tentativo)')
 ok(tentativo(t_mar, MAR) == 200, 'Mario riaccede ancora')
 r = aspetta(lambda: (lambda x: x if x and x.get('avvisato') != vecchio else None)(richiesta(MAR))) or {}
 ok(bool(r) and str(r.get('tentativi')) == '3', 'passato il minuto la notifica a Valerio parte (approvato in automatico)')
@@ -129,6 +142,7 @@ ok(decide(MAR, 'revocato') == 200, 'Valerio toglie l\'accesso a Mario')
 time.sleep(2)
 ok(rimetti_avvisato_vecchio(MAR) == 200, '(un minuto dopo)')
 vecchio = (richiesta(MAR) or {}).get('avvisato')
+ok(ultimo_tentativo(MAR, 30) == 200, '(e 20 secondi dopo il tentativo)')
 ok(tentativo(t_mar, MAR, motivo='ancora') == 200, 'Mario chiede di nuovo, con lo stesso account')
 r = aspetta(lambda: (lambda x: x if x and x.get('avvisato') != vecchio else None)(richiesta(MAR))) or {}
 ok(r.get('stato') == 'revocato', 'resta fuori (rifiutato in automatico)')

@@ -5,7 +5,15 @@ import { Nativo, nativo } from '../nativo/plugin';
 import { avviso } from '../ui/avvisi';
 import { schermataMuro } from '../viste/muro';
 import type { MotivoTentativo, StatoAccesso } from './accesso';
-import { decidiMuro, indirizzoConfig, obbligoDaDocumento, pulitoPerRichiesta, type EsitoMuro } from './muro-logica';
+import {
+  decidiMuro,
+  esitoTentativo,
+  indirizzoConfig,
+  obbligoDaDocumento,
+  pulitoPerRichiesta,
+  type EsitoMuro,
+  type EsitoTentativo,
+} from './muro-logica';
 import {
   accedi,
   accediSoloAccount,
@@ -173,23 +181,25 @@ function segui(uid: string): void {
 const giaVisto = (uid: string): boolean => (leggi(LS_PRIMO) ?? '').split(',').includes(uid);
 
 async function primoAvvio(uid: string): Promise<void> {
-  if (await tentativo(uid, 'primo'))
+  if ((await tentativo(uid, 'primo')) !== 'no')
     scrivi(LS_PRIMO, [...(leggi(LS_PRIMO) ?? '').split(',').filter(Boolean), uid].join(','));
 }
 
 /** Un tentativo di accesso di questo account: lo legge la funzione, che decide e avvisa Valerio. */
-async function tentativo(uid: string, motivo: MotivoTentativo): Promise<boolean> {
+async function tentativo(uid: string, motivo: MotivoTentativo): Promise<EsitoTentativo> {
   inviati.add(uid);
   try {
     const a = await accesso();
     await a.registraTentativo(uid, pulitoPerRichiesta(modelloLeggibile(await infoDispositivo())), motivo);
-    return true;
+    return 'ok';
   } catch (e) {
-    // l'accesso rifatto subito dopo (la sincronizzazione che riparte) fa rimandare la scrittura già arrivata: c'è
-    if ((e as { code?: unknown } | null)?.code === 'already-exists') return true;
-    inviati.delete(uid);
-    registraErrore('tentativo di accesso', e);
-    return false;
+    // già scritto (la scrittura rimandata), oppure troppo presto dopo il tentativo di prima, che c'è: non sono errori
+    const r = esitoTentativo((e as { code?: unknown } | null)?.code);
+    if (r === 'no') {
+      inviati.delete(uid);
+      registraErrore('tentativo di accesso', e);
+    }
+    return r;
   }
 }
 
@@ -357,12 +367,16 @@ export async function preparaNotifiche(): Promise<void> {
 export async function chiediDalleImpostazioni(): Promise<boolean> {
   if (!sync) return false;
   utente ??= { uid: sync.uid, email: sync.email, nome: sync.account };
-  const ok = await tentativo(sync.uid, 'accesso');
+  const ok = (await tentativo(sync.uid, 'accesso')) !== 'no';
   if (ok) void registraToken();
   return ok;
 }
 
 // ───────── i pulsanti della schermata ─────────
+
+/** Il server accetta un tentativo ogni 20 secondi per account: quello di poco fa Valerio l'ha già (l'accesso stesso
+ * è una richiesta), quindi lo si dice così e non come un errore di rete. */
+const GIA_INVIATA = 'Richiesta già inviata ✓ Valerio la vede';
 
 function spiega(r: EsitoAccesso): void {
   // negato: lo dice la schermata stessa
@@ -402,16 +416,20 @@ export async function muroAccedi(): Promise<void> {
 /** La schermata «Chiedi l'accesso» (la richiesta automatica non era partita, per esempio senza rete). */
 export async function muroChiedi(): Promise<void> {
   if (!utente) return;
-  if (await tentativo(utente.uid, 'accesso')) {
-    await valuta();
-    avviso('Richiesta inviata ✓ Valerio la riceve subito', 5000);
-  } else avviso('Richiesta non inviata: sei connesso a internet?');
+  const r = await tentativo(utente.uid, 'accesso');
+  if (r === 'no') {
+    avviso('Richiesta non inviata: sei connesso a internet?');
+    return;
+  }
+  await valuta();
+  avviso(r === 'ok' ? 'Richiesta inviata ✓ Valerio la riceve subito' : GIA_INVIATA, 5000);
 }
 
 /** «Chiedi di nuovo» per chi è stato rifiutato o non ha più l'accesso: Valerio lo vede e può cambiare idea. */
 export async function muroAncora(): Promise<void> {
   if (!utente || Date.now() - ancoraAlle < UN_MINUTO) return;
-  if (!(await tentativo(utente.uid, 'ancora'))) {
+  const r = await tentativo(utente.uid, 'ancora');
+  if (r === 'no') {
     avviso('Richiesta non inviata: sei connesso a internet?');
     return;
   }
@@ -421,7 +439,7 @@ export async function muroAncora(): Promise<void> {
   setTimeout(() => {
     if (esito !== 'aperto') mostra(esito);
   }, UN_MINUTO + 100);
-  avviso('Richiesta inviata di nuovo ✓ Valerio la vede', 5000);
+  avviso(r === 'ok' ? 'Richiesta inviata di nuovo ✓ Valerio la vede' : GIA_INVIATA, 5000);
 }
 
 /** «Usa un altro account»: si esce da questo e si torna alla schermata di accesso. */
