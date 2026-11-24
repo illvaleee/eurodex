@@ -29,10 +29,15 @@ public class AvvisiPush extends FirebaseMessagingService {
                 String cid = sp.getString("sync_cid", ""), mio = sp.getString("sync_did", "");
                 if (cid.isEmpty() || !cid.equals(d.get("cid")) || mio.equals(d.get("did"))) return;
                 // la stessa notizia può arrivare due volte, dall'argomento (per le versioni vecchie) e dal token di
-                // questo telefono (§4.5): la seconda si ignora
-                String chiave = d.get("did") + "|" + d.get("ts") + "|" + d.get("testo");
-                if (chiave.equals(sp.getString("sync_ultimo", ""))) return;
-                sp.edit().putString("sync_ultimo", chiave).apply();
+                // questo telefono (§4.5): la seconda si ignora. Si ricordano le ultime 8, perché con due modifiche
+                // ravvicinate le copie possono arrivare mescolate (revisione di Claude 3 su #14)
+                String chiave = Integer.toHexString((d.get("did") + "|" + d.get("ts") + "|" + d.get("testo")).hashCode());
+                java.util.ArrayList<String> visti = new java.util.ArrayList<>();
+                for (String v : sp.getString("sync_visti", "").split(",")) if (!v.isEmpty()) visti.add(v);
+                if (visti.contains(chiave)) return;
+                visti.add(chiave);
+                while (visti.size() > 8) visti.remove(0);
+                sp.edit().putString("sync_visti", android.text.TextUtils.join(",", visti)).apply();
                 NativoPlugin.evento(d);   // se l'app è aperta si aggiorna subito
                 if (!sp.getBoolean("attivi", true)) return;   // notifiche spente nelle impostazioni dell'app
                 // app aperta sullo schermo: l'avviso lo mostra già l'app, la notifica sarebbe un doppione

@@ -105,7 +105,9 @@ export async function azioneChiediAccesso(): Promise<void> {
 
 // ───────── la sezione di Valerio ─────────
 
-const nomeDi = (r: Richiesta) => r.nome || r.email || 'Senza nome';
+// in grassetto l'email, che viene da Google e non si può inventare; il nome lo sceglie la persona (revisione di Claude
+// 3 su #14: un nome come «Mamma (…)» non deve sembrare l'identità)
+const chiE = (r: Richiesta) => r.email || 'senza email';
 const ultimaVolta = (r: Richiesta) => (r.ultimoTentativo ?? r.richiesta)?.getTime() ?? 0;
 
 /** I telefoni su cui ogni account usa Eurodex (dalla sincronizzazione): si leggono una volta per apertura. */
@@ -132,7 +134,7 @@ function riga(r: Richiesta, pulsanti: TemplateResult): TemplateResult {
   const fuori = r.stato === 'revocato' ? 'accesso tolto' : r.stato === 'rifiutato' ? 'rifiutato' : '';
   const ultimo = ultimaVolta(r);
   const dettagli = [
-    r.nome ? r.email : '',
+    r.nome,
     fuori,
     ultimo ? `ultimo accesso ${quando(ultimo)}${r.dispositivo ? ` da ${r.dispositivo}` : ''}` : r.dispositivo,
     r.tentativi > 1 ? `${r.tentativi} accessi` : '',
@@ -140,9 +142,9 @@ function riga(r: Richiesta, pulsanti: TemplateResult): TemplateResult {
     .filter(Boolean)
     .join(' · ');
   return html`<div class="disp acc">
-    <span class="dico" aria-hidden="true">${nomeDi(r).slice(0, 1).toUpperCase()}</span>
+    <span class="dico" aria-hidden="true">${chiE(r).slice(0, 1).toUpperCase()}</span>
     <div class="grow">
-      <b>${nomeDi(r)}</b><span>${dettagli}</span>${righeTelefoni(r.uid)}
+      <b>${chiE(r)}</b><span>${dettagli}</span>${righeTelefoni(r.uid)}
       ${r.nota ? html`<span class="accnota">${r.nota}</span>` : nothing}
       <div class="row gap accbtn">${pulsanti}</div>
     </div>
@@ -155,7 +157,7 @@ function elenco(tutte: readonly Richiesta[], io: string): TemplateResult {
   const dentro = l.filter(r => r.stato === 'approvato');
   const fuori = l.filter(r => r.stato === 'rifiutato' || r.stato === 'revocato');
   const pulsante = (r: Richiesta, act: string, testo: string, classe = 'btn sm') =>
-    html`<button class=${classe} data-act=${act} data-v=${r.uid} aria-label="${testo}: ${nomeDi(r)}">${testo}</button>`;
+    html`<button class=${classe} data-act=${act} data-v=${r.uid} aria-label="${testo}: ${chiE(r)}">${testo}</button>`;
   const gruppo = (titolo: string, righe: TemplateResult[], vuoto: string) =>
     html`<div class="sec">${titolo}</div>
       ${righe.length ? html`<div class="displist">${righe}</div>` : html`<div class="muted small">${vuoto}</div>`}`;
@@ -180,9 +182,14 @@ function elenco(tutte: readonly Richiesta[], io: string): TemplateResult {
   }`;
 }
 
-/** I telefoni degli account nuovi nell'elenco; quando arrivano, l'elenco si ridisegna. */
+/** I telefoni degli account nuovi nell'elenco (e di quelli che non ne avevano ancora: il telefono di chi ha appena
+ * fatto l'accesso si registra un attimo dopo); quando arrivano, l'elenco si ridisegna. */
 async function caricaTelefoni(l: readonly Richiesta[], ridisegna: () => void): Promise<void> {
-  const nuovi = l.map(r => r.uid).filter(uid => !telefoni.has(uid));
+  const vuoto = (uid: string) => {
+    const t = telefoni.get(uid);
+    return t === undefined || (Array.isArray(t) && t.length === 0);
+  };
+  const nuovi = l.map(r => r.uid).filter(vuoto);
   if (!nuovi.length) return;
   const m = await motore();
   const mappa = telefoni;
@@ -235,9 +242,11 @@ export async function apriGestioneAccessi(): Promise<void> {
         smettiRichieste = null;
         return;
       }
+      ultime = new Map(l.map(r => [r.uid, r]));
       render(elenco(l, io), box);
+      // arrivati i telefoni si ridisegna l'elenco più recente (non quello di quando sono stati chiesti)
       void caricaTelefoni(l, () => {
-        if (box.isConnected) render(elenco(l, io), box);
+        if (box.isConnected) render(elenco([...ultime.values()], io), box);
       }).catch(() => undefined);
     },
     e => {
@@ -249,26 +258,36 @@ export async function apriGestioneAccessi(): Promise<void> {
   smettiRichieste = smetti;
 }
 
-const DOMANDE: Partial<Record<Decisione, { titolo: string; testo: string; ok: string }>> = {
-  rifiutato: {
-    titolo: 'Rifiutare la richiesta?',
-    testo:
-      'Non potrà usare Eurodex, nemmeno col muro spento. Se ci riprova ti arriva una notifica, e puoi sempre approvarlo dopo.',
-    ok: 'Rifiuta',
-  },
-  revocato: {
-    titolo: "Togliere l'accesso?",
-    testo:
-      'Da subito non potrà più usare Eurodex, nemmeno col muro spento, e gli arriva una notifica. Quello che ha segnato resta salvato sul suo telefono. Puoi riapprovarlo quando vuoi.',
+/** Le conferme, con l'email vera (e il nome scelto dalla persona, detto come tale). */
+function domanda(stato: Decisione, r: Richiesta | undefined): { titolo: string; testo: string; ok: string } {
+  const email = r?.email || 'questo account';
+  const nome = r?.nome ? `Nome sull'account Google: «${r.nome}» (lo sceglie la persona, l'email no). ` : '';
+  if (stato === 'approvato')
+    return {
+      titolo: `Approvare ${email}?`,
+      testo: `${nome}Potrà usare Eurodex anche col muro acceso, e gli arriva una notifica.`,
+      ok: 'Approva',
+    };
+  if (stato === 'rifiutato')
+    return {
+      titolo: `Rifiutare ${email}?`,
+      testo: `${nome}Non potrà usare Eurodex, nemmeno col muro spento. Se ci riprova ti arriva una notifica, e puoi sempre approvarlo dopo.`,
+      ok: 'Rifiuta',
+    };
+  return {
+    titolo: `Togliere l'accesso a ${email}?`,
+    testo: `${nome}Da subito non potrà più usare Eurodex, nemmeno col muro spento, e gli arriva una notifica. Quello che ha segnato resta salvato sul suo telefono. Puoi riapprovarlo quando vuoi.`,
     ok: "Togli l'accesso",
-  },
-};
+  };
+}
 
-/** Approva, rifiuta o toglie l'accesso (chiedendo conferma per rifiutare e togliere). */
+/** Le richieste dell'ultimo elenco disegnato (per le conferme). */
+let ultime = new Map<string, Richiesta>();
+
+/** Approva, rifiuta o toglie l'accesso, sempre con conferma (con l'email vera). */
 export async function decidiAccesso(uid: string | undefined, stato: Decisione): Promise<void> {
   if (!uid) return;
-  const d = DOMANDE[stato];
-  if (d && !(await dialogo({ ...d, pericolo: true }))) return;
+  if (!(await dialogo({ ...domanda(stato, ultime.get(uid)), pericolo: stato !== 'approvato' }))) return;
   try {
     await (await accesso()).decidi(uid, stato);
     avviso(

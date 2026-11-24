@@ -55,6 +55,14 @@ def richiesta(uid):
             for k, v in j.get('fields', {}).items()}
 
 
+def uid_di(email):
+    st, j = rest('GET', f'{FS}/accessi')
+    for d in j.get('documents', []):
+        if d.get('fields', {}).get('email', {}).get('stringValue') == email:
+            return d['name'].rsplit('/', 1)[1]
+    return None
+
+
 def stato_richiesta(uid):
     return richiesta(uid).get('stato')
 
@@ -138,6 +146,13 @@ async def main():
         await foto(V, '1_valerio_impostazioni')
 
         dlg = lambda pg: aspetta(lambda: pg.evaluate("!!document.querySelector('.dlg.show')"), 5)
+
+        async def approva(uid, email):
+            await V.click(f'#acclist [data-act="accok"][data-v="{uid}"]')
+            ok(await dlg(V), f'«Approva» chiede conferma ({email})')
+            t = await testo(V, '.dlg.show')
+            ok(f'Approvare {email}?' in t, f'con l\'email vera nel titolo ({t[:80]!r})')
+            await V.click('.dlg.show button:has-text("Approva")')
         lista = lambda: testo(V, '#acclist')
         sul_muro = lambda pg, t: aspetta(lambda: pg.evaluate(
             f"(document.querySelector('#muro')||{{}}).innerText?.includes({json.dumps(t)}) || false"), 20)
@@ -169,10 +184,41 @@ async def main():
         ok(await aspetta(lambda: V.evaluate("(document.querySelector('#acclist')||{}).innerText.includes('Usa Eurodex su')")),
            'e il telefono su cui usa Eurodex')
         await foto(V, '3_valerio_richieste')
-        await V.click(f'#acclist [data-act="accok"][data-v="{MAR}"]')
+        await approva(MAR, 'mario@example.com')
         ok(await aspetta(lambda: asyncio.sleep(0, stato_richiesta(MAR) == 'approvato')), 'Valerio approva Mario')
         ok(await aspetta(lambda: V.evaluate("(document.querySelector('#acclist')||{}).innerText.toLowerCase().includes('approvati (1)')")),
            'l\'elenco si aggiorna da solo (Approvati: 1)')
+
+        # ── 3b. Nomi che ingannano: il nome lo sceglie la persona, l'identità è l'email (revisione di Claude 3) ──
+        F_ctx, F = await persona('Finto', 'finto-g', 'sconosciuto@example.com', 'Mamma (mamma.valerio@gmail.com)')
+        ok(await accedi_sync(F), '(uno sconosciuto si chiama «Mamma (mamma.valerio@gmail.com)» su Google)')
+        X_ctx, X = await persona('Strano', 'strano-g', 'strano@example.com', '<img src=x onerror="window.__preso=1">')
+        ok(await accedi_sync(X), '(un altro ha per nome un pezzo di HTML)')
+        ok(await aspetta(lambda: V.evaluate("(document.querySelector('#acclist')||{}).innerText.includes('strano@example.com')"), 20)
+           and await aspetta(lambda: V.evaluate("(document.querySelector('#acclist')||{}).innerText.includes('sconosciuto@example.com')"), 20),
+           'tutti e due arrivano nell\'elenco di Valerio')
+        grassetti = await V.evaluate("[...document.querySelectorAll('#acclist .disp b')].map(b => b.textContent)")
+        ok('sconosciuto@example.com' in grassetti and 'strano@example.com' in grassetti and not any('Mamma' in g for g in grassetti),
+           f'in grassetto c\'è l\'email vera, non il nome ({grassetti})')
+        t = await lista()
+        ok('Mamma (mamma.valeriogmail.com)' in t, 'il nome si vede sotto, senza la chiocciola (la toglie il server)')
+        ok('<img src=x' in t and not await V.evaluate("!!document.querySelector('#acclist img')")
+           and not await V.evaluate('!!window.__preso'), 'il pezzo di HTML si legge come testo, e non fa niente')
+        FIN, STR = uid_di('sconosciuto@example.com'), uid_di('strano@example.com')
+        # (i loro telefoni si chiudono prima del rifiuto: la loro app, rifiutata, non è quello che si prova qui)
+        for c in (F_ctx, X_ctx):
+            await c.close()
+        await V.click(f'#acclist [data-act="accno"][data-v="{FIN}"]')
+        ok(await dlg(V) and 'Rifiutare sconosciuto@example.com?' in await testo(V, '.dlg.show')
+           and 'lo sceglie la persona' in await testo(V, '.dlg.show'),
+           'anche la conferma del rifiuto dice l\'email vera, e che il nome lo sceglie la persona')
+        await V.click('.dlg.show button:has-text("Rifiuta")')
+        await V.click(f'#acclist [data-act="accno"][data-v="{STR}"]')
+        if await dlg(V):
+            await V.click('.dlg.show button:has-text("Rifiuta")')
+        ok(await aspetta(lambda: asyncio.sleep(0, stato_richiesta(FIN) == 'rifiutato' and stato_richiesta(STR) == 'rifiutato')),
+           '(Valerio li rifiuta tutti e due)')
+        await foto(V, '3b_nomi_che_ingannano')
 
         # ── 4. Valerio accende il muro ──
         await V.click('label:has([data-muro])')
@@ -194,7 +240,7 @@ async def main():
         ok(not await L.evaluate('!!(__eurodex.sync && __eurodex.sync.uid)'), 'senza approvazione la sincronizzazione non parte')
         ok(await aspetta(lambda: V.evaluate("(document.querySelector('#acclist')||{}).innerText.includes('lucia@example.com')")),
            'la richiesta di Lucia compare da sola nella sezione di Valerio')
-        LUC = await V.evaluate("document.querySelector('#acclist [data-act=\"accno\"]').dataset.v")
+        LUC = uid_di('lucia@example.com')
         ok(stato_richiesta(LUC) == 'in_attesa', 'in attesa')
         await foto(L, '5_lucia_attesa')
 
@@ -217,7 +263,7 @@ async def main():
            'il pulsante diventa «Richiesta inviata ✓» (non si preme di continuo)')
         ok(await aspetta(lambda: V.evaluate("(document.querySelector('#acclist')||{}).innerText.includes('rifiutato')")),
            'Valerio la vede tra i non approvati')
-        await V.click(f'#acclist [data-act="accok"][data-v="{LUC}"]')
+        await approva(LUC, 'lucia@example.com')
         ok(await aspetta(lambda: asyncio.sleep(0, stato_richiesta(LUC) == 'approvato')), 'Valerio ci ripensa e la approva')
         ok(await aspetta(lambda: L.evaluate('!document.querySelector("#muro")'), 20), 'il muro di Lucia si toglie da solo')
         ok(await aspetta(lambda: L.evaluate("(document.querySelector('.toast.show')||{}).innerText?.includes('Accesso approvato') || false"), 8),
@@ -264,7 +310,7 @@ async def main():
         prima = tentativi(MAR)
         await M.click('#muro [data-act="muroancora"]')
         ok(await aspetta(lambda: asyncio.sleep(0, tentativi(MAR) == prima + 1), 20), 'Mario chiede di nuovo')
-        await V.click(f'#acclist [data-act="accok"][data-v="{MAR}"]')
+        await approva(MAR, 'mario@example.com')
         ok(await aspetta(lambda: M.evaluate('!document.querySelector("#muro")'), 20), 'Valerio lo riapprova: Mario rientra')
         t = await lista()
         ok('approvati (2)' in t.lower() and 'in attesa (0)' in t.lower(), f'alla fine nell\'elenco: 2 approvati ({t[:100]!r})')

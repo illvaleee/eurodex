@@ -87,6 +87,23 @@ test('tentativo di un account già deciso: la decisione resta e Valerio lo sa', 
   assert.equal(boh.notifica.notification.title, 'Richiesta di accesso a Eurodex');
 });
 
+test("nome e telefono senza @: in grassetto e in cima resta solo l'email vera", () => {
+  const e = L.dopoTentativo(
+    'u1',
+    null,
+    {
+      nome: 'Mamma (mamma.valerio@gmail.com)\u202e',
+      email: 'sconosciuto@example.com',
+      dispositivo: 'Pixel@7',
+    },
+    0,
+  );
+  assert.equal(e.campi.nome, 'Mamma (mamma.valeriogmail.com)');
+  assert.equal(e.campi.dispositivo, 'Pixel7');
+  assert.equal(e.campi.email, 'sconosciuto@example.com');
+  assert.equal(L.dopoTentativo('u1', null, { nome: 'n'.repeat(300) }, 0).campi.nome.length, 80);
+});
+
 test('tentativi di fila: al massimo una notifica al minuto per account', () => {
   const chi = { email: 'mario@example.com' };
   const t0 = 100 * L.UN_MINUTO;

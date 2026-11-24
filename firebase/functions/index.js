@@ -18,11 +18,19 @@ const L = require('./logica');
 initializeApp();
 const OPZIONI = { region: 'europe-west1', maxInstances: 3, memory: '256MiB' };
 
+/** I telefoni di un account per le notifiche: i 10 aggiornati più di recente (Cloud Messaging ne accetta al massimo
+ * 500 per invio, e un account non ne ha mai tanti davvero: revisione di Claude 2 su #14). */
 async function dispositivi(uid) {
-  return getFirestore().collection('accessi').doc(uid).collection('dispositivi').get();
+  return getFirestore()
+    .collection('accessi')
+    .doc(uid)
+    .collection('dispositivi')
+    .orderBy('aggiornato', 'desc')
+    .limit(10)
+    .get();
 }
 
-/** Manda a tutti i dispositivi registrati di un account, e toglie i token che non esistono più. */
+/** Manda ai dispositivi registrati di un account, e toglie i token che non esistono più. */
 async function mandaAiDispositivi(uid, messaggio) {
   const snap = await dispositivi(uid);
   const tokens = L.tokenDi(snap.docs.map(d => d.data()));

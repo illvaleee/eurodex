@@ -77,10 +77,13 @@ function messaggioRichiesta(uid, r) {
  * - Al massimo una notifica al minuto per account (dieci tocchi di fila non fanno dieci notifiche).
  */
 function dopoTentativo(uid, r, t, ora) {
+  // nome e telefono li sceglie la persona: senza @, così l'unico campo con la chiocciola resta l'email, che viene da
+  // Authentication (come faceva la regola di #8; revisione di Claude 2 e Claude 3 su #14)
+  const senzaChiocciola = x => pulito(x, 200).replace(/@/g, '').slice(0, 80);
   const info = {
-    nome: pulito(t && t.nome, 80),
+    nome: senzaChiocciola(t && t.nome),
     email: pulito(t && t.email, 120),
-    dispositivo: pulito(t && t.dispositivo, 80),
+    dispositivo: senzaChiocciola(t && t.dispositivo),
   };
   if (!r) return { nuovo: true, campi: { stato: 'in_attesa', ...info, tentativi: 1 }, notifica: null };
   const campi = { ...info, tentativi: (Number(r.tentativi) || 1) + 1 };
