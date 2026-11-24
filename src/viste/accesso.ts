@@ -4,7 +4,14 @@ import { registraErrore } from '../core/errori';
 import { quando } from '../core/formato';
 import type { Decisione, Richiesta, StatoAccesso } from '../sync/accesso';
 import type { Dispositivo } from '../sync/motore';
-import { chiediDalleImpostazioni, muroAcceso, muroCambiato, preparaNotifiche } from '../sync/muro';
+import {
+  chiediDalleImpostazioni,
+  inProvaAutomatica,
+  muroAcceso,
+  muroAccesoSulServer,
+  muroCambiato,
+  preparaNotifiche,
+} from '../sync/muro';
 import { sincronizzazioneAttiva, sync } from '../sync/sincronizzazione';
 import { avviso } from '../ui/avvisi';
 import { dialogo } from '../ui/dialogo';
@@ -52,8 +59,8 @@ function sezioneAmministratore(inAttesa: number | null): TemplateResult {
         <span class="mico">${ICONA.lucchetto}</span><b>Accessi a Eurodex</b><span class="mbadge">solo per te</span>
       </div>
       <div class="muted small">
-        Muro <b>${muroAcceso() ? 'acceso' : 'spento'}</b>${
-          muroAcceso()
+        Muro <b>${muroAccesoSulServer() ? 'acceso' : 'spento'}</b>${
+          muroAccesoSulServer()
             ? ': solo chi approvi usa Eurodex.'
             : ': per ora Eurodex è aperto a tutti, tranne chi hai escluso.'
         }${inAttesa ? html` <b>${inAttesa === 1 ? '1 richiesta' : `${inAttesa} richieste`} in attesa.</b>` : nothing}
@@ -214,6 +221,12 @@ export async function apriGestioneAccessi(): Promise<void> {
   const io = sync.uid;
   const a = await accesso();
   if (!a.eAmministratore(io)) return;
+  // durante le prove automatiche (un giro con tocchi a caso sul telefono di Valerio) il foglio non si apre: lì un tocco
+  // accende il muro per tutti o decide di una persona vera, e a quella arriva la notifica (revisione di Claude 3)
+  if (await inProvaAutomatica()) {
+    avviso('Durante le prove automatiche la gestione degli accessi non si apre', 5000);
+    return;
+  }
   apriFoglio(html`
     <h2 data-foglio="accessi">Accessi a Eurodex</h2>
     <label class="tgl"
@@ -223,7 +236,7 @@ export async function apriGestioneAccessi(): Promise<void> {
           >Acceso: chi non è approvato vede solo la schermata per accedere e chiedere l'accesso. Spento: Eurodex è
           aperto a tutti, tranne chi hai rifiutato o a cui hai tolto l'accesso.</small
         ></span
-      ><input type="checkbox" data-muro .checked=${muroAcceso()} /><i aria-hidden="true"></i
+      ><input type="checkbox" data-muro .checked=${muroAccesoSulServer()} /><i aria-hidden="true"></i
     ></label>
     <div id="acclist"></div>
     <button class="btn" data-act="close" style="margin-top:18px">Chiudi</button>
