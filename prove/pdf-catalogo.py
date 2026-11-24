@@ -12,6 +12,12 @@ PDF = os.path.join(DIR, 'catalogo.pdf')
 errori = []
 
 
+# il muro vero (config/accesso sul server) qui non conta: queste prove non usano gli emulatori, e col muro acceso da
+# Valerio vedrebbero solo la schermata per accedere. Il muro lo provano accesso-app.py (emulatori) e la 7b dell'APK
+async def muro_spento(ctx):
+    await ctx.route('**/documents/config/accesso*', lambda r: r.fulfill(status=404, body='{}'))
+
+
 def ok(c, m):
     print(('✓ ' if c else '✗ ') + m)
     if not c:
@@ -22,6 +28,7 @@ async def crea_pdf():
     async with async_playwright() as p:
         b = await p.chromium.launch()
         ctx = await b.new_context(viewport={'width': 390, 'height': 844}, device_scale_factor=2, accept_downloads=True)
+        await muro_spento(ctx)
         pg = await ctx.new_page()
         js = []
         pg.on('pageerror', lambda e: js.append(str(e)))

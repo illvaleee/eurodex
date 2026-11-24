@@ -6,6 +6,12 @@ SH=os.environ.get('PROVE_FOTO', '/tmp/prove-foto') + '/uso-completo/'
 import os; os.makedirs(SH, exist_ok=True)
 CSV=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dati', 'esportazione-vecchia-app.csv')
 FAIL=[]
+# il muro vero (config/accesso sul server) qui non conta: queste prove non usano gli emulatori, e col muro acceso da
+# Valerio vedrebbero solo la schermata per accedere. Il muro lo provano accesso-app.py (emulatori) e la 7b dell'APK
+async def muro_spento(ctx):
+    await ctx.route('**/documents/config/accesso*', lambda r: r.fulfill(status=404, body='{}'))
+
+
 def check(c, what):
     print(('OK  ' if c else 'NO  ')+what); 
     if not c: FAIL.append(what)
@@ -36,6 +42,7 @@ async def run(scheme):
     async with async_playwright() as p:
         b=await p.chromium.launch()
         ctx=await b.new_context(viewport={'width':390,'height':844}, device_scale_factor=2, color_scheme=scheme, has_touch=False, accept_downloads=True)
+        await muro_spento(ctx)
         pg=await ctx.new_page()
         errs=[]
         pg.on('pageerror', lambda e: errs.append('PAGE '+str(e)))

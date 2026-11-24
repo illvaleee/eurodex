@@ -4,6 +4,12 @@ os.makedirs(os.environ.get('PROVE_FOTO', '/tmp/prove-foto'), exist_ok=True)
 import asyncio, json, base64
 from playwright.async_api import async_playwright
 ERR = []
+# il muro vero (config/accesso sul server) qui non conta: queste prove non usano gli emulatori, e col muro acceso da
+# Valerio vedrebbero solo la schermata per accedere. Il muro lo provano accesso-app.py (emulatori) e la 7b dell'APK
+async def muro_spento(ctx):
+    await ctx.route('**/documents/config/accesso*', lambda r: r.fulfill(status=404, body='{}'))
+
+
 def ok(c, m):
     print(('✓ ' if c else '✗ ') + m, flush=True)
     if not c: ERR.append(m)
@@ -16,6 +22,7 @@ async def main():
         b = await p.chromium.launch()
         async def dispositivo(dati):
             ctx = await b.new_context(viewport={'width': 412, 'height': 915}, reduced_motion='reduce', accept_downloads=True)
+            await muro_spento(ctx)
             await ctx.add_init_script("if (!localStorage.getItem('collezioneEuro.v3')) localStorage.setItem('collezioneEuro.v3', JSON.stringify(" + json.dumps(dati) + "))")
             pg = await ctx.new_page(); errs = []; pg.on('pageerror', lambda e: errs.append(str(e)))
             await pg.goto('http://localhost:8791/index.html'); await pg.wait_for_timeout(2500)
