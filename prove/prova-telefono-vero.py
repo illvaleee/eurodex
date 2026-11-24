@@ -33,7 +33,7 @@ if a[:1] == ['exec-out']:
         sys.stdout.buffer.write(bytes.fromhex('89504e470d0a1a0a')); salva(); sys.exit(0)
     out = '0123456789abcdef0123456789abcdef  -' if 'md5sum' in c else ''
     if c.startswith('uiautomator'):
-        out = "<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\"0\"></hierarchy>"
+        out = s.get('schermo') or "<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\"0\"></hierarchy>"
 elif a[:1] == ['shell']:
     riga = ' '.join(a[1:])          # come adb: gli argomenti uniti con spazi, poi la shell del telefono
     if riga.startswith('input '):
@@ -97,6 +97,9 @@ elif a[:1] == ['shell']:
             out = '4242'
         elif p[:2] == ['cat', '/proc/loadavg']:
             out = '0.10 0.20 0.30 1/200 999'
+        elif p[:2] == ['dumpsys', 'package']:
+            out = '  Package [it.collezione.euro] (1a2b3c):\n    versionCode=83 minSdk=24 targetSdk=35\n' + (
+                f"    versionName={s['versione']}\n" if s.get('versione') else '')
         elif p[:3] == ['dumpsys', 'activity', 'activities']:
             out = 'topResumedActivity=ActivityRecord{1 u0 it.collezione.euro/.MainActivity t1}'
 print(out)
@@ -115,10 +118,12 @@ VALERIO = {   # come il telefono di Valerio (messaggio di Claude 1 delle 10:03):
         'secure': {'ui_night_mode_custom_type': '1', 'dark_theme_custom_start_time': '79200000',
                    'dark_theme_custom_end_time': '25200000'},
     },
+    'versione': '1.0.83',
     'chiamate': [],
 }
 EMULATORE = copy.deepcopy(VALERIO)
 EMULATORE['prop'] = {'ro.kernel.qemu': '1', 'ro.boot.qemu': '1', 'ro.hardware': 'ranchu'}
+EMULATORE['versione'] = '1.0.82'      # sull'emulatore la versione non conta per lo stress test
 
 os.makedirs(os.path.join(CARTELLA, 'bin'))
 with open(os.path.join(CARTELLA, 'bin', 'adb'), 'w') as f:
@@ -402,6 +407,79 @@ E.IMP.rimetti_tutto()
 s = stato()
 ok(not any('TIMEOUT' in c for c in comandi(s)) and s['impostazioni']['system']['screen_off_timeout'] == '30000',
    'e alla fine non si scrive «TIMEOUT» al posto dell\'impostazione vera')
+
+# 12. la gestione degli accessi (solo per l'amministratore) non si apre mai, e se è aperta non si tocca niente;
+# le altre schermate e gli altri dialoghi si provano come prima
+def schermata(*elementi):
+    """Una schermata dell'app come la scrive uiautomator: elementi (classe, testo, toccabile, spuntabile)."""
+    righe, y = [], 200
+    for cls, testo, clic, spunta in elementi:
+        righe.append(f'<node index="0" text="{testo}" resource-id="" class="android.widget.{cls}" '
+                     f'package="it.collezione.euro" content-desc="" checkable="{str(spunta).lower()}" checked="false" '
+                     f'clickable="{str(clic).lower()}" enabled="true" focusable="true" focused="false" scrollable="false" '
+                     f'long-clickable="false" password="false" selected="false" bounds="[40,{y}][680,{y + 80}]" />')
+        y += 120
+    return ("<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\"0\">"
+            '<node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="it.collezione.euro" '
+            'content-desc="" checkable="false" checked="false" clickable="false" enabled="true" focusable="false" '
+            'focused="false" scrollable="false" long-clickable="false" password="false" selected="false" '
+            'bounds="[0,0][720,1612]">' + ''.join(righe) + '</node></hierarchy>')
+
+
+def azioni_su(*elementi):
+    t = stato()
+    t['schermo'] = schermata(*elementi)
+    json.dump(t, open(STATO, 'w'))
+    return [a.etichetta for a in E.osserva().azioni]
+
+
+for opzione in ('--anche-con-account', '--senza-account'):
+    telefono(VALERIO)
+    E = carica(opzione)
+    az = azioni_su(('TextView', 'Accessi a Eurodex', False, False), ('Button', 'Gestisci gli accessi', True, False),
+                   ('Button', 'Esporta la collezione', True, False))
+    ok('Gestisci gli accessi' not in az and 'Esporta la collezione' in az,
+       f'{opzione}: «Gestisci gli accessi» non si tocca, il resto delle impostazioni sì ({az})')
+FOGLI = {
+    'il foglio degli accessi': [('CheckBox', 'Solo chi approvi può usare Eurodex', True, True), ('Button', 'Approva', True, False),
+                                ('Button', 'Rifiuta', True, False), ('Button', 'Chiudi', True, False)],
+    '«Accendere il muro?»': [('TextView', 'Accendere il muro?', False, False), ('Button', 'Accendi', True, False),
+                             ('Button', 'Annulla', True, False)],
+    '«Approvare …?»': [('TextView', 'Approvare persona@example.com?', False, False), ('Button', 'Approva', True, False),
+                       ('Button', 'Annulla', True, False)],
+    '«Rifiutare …?»': [('TextView', 'Rifiutare persona@example.com?', False, False), ('Button', 'Rifiuta', True, False),
+                       ('Button', 'Annulla', True, False)],
+    '«Togliere l\'accesso a …?»': [('TextView', "Togliere l'accesso a persona@example.com?", False, False),
+                                   ('Button', "Togli l'accesso", True, False), ('Button', 'Annulla', True, False)],
+}
+for nome, elementi in FOGLI.items():
+    az = azioni_su(*elementi)
+    ok(az == [], f'{nome}: niente da toccare, si torna indietro ({az})')
+az = azioni_su(('TextView', 'Azzerare la collezione?', False, False), ('Button', 'Azzera', True, False),
+               ('Button', 'Annulla', True, False))
+ok('Azzera' in az and 'Annulla' in az, f'un altro dialogo di conferma si prova come prima ({az})')
+
+# 13. sul telefono vero i tocchi a caso partono solo con un'app che durante le prove non apre la gestione degli accessi
+for versione, parte in (('1.0.82', False), (None, False), ('1.0.83', True), ('1.1.0', True)):
+    base = copy.deepcopy(VALERIO)
+    base['versione'] = versione
+    telefono(base)
+    E = carica('--senza-account', '--monkey')
+    E.giro = lambda: E.stress()
+    try:
+        E.main()
+    except SystemExit:
+        pass
+    s = stato()
+    ok(any(c.startswith('monkey') for c in comandi(s)) == parte and senza_chiamate(s) == senza_chiamate(base),
+       f'--monkey sul telefono vero con l\'app {versione or "senza versione"}: {"parte" if parte else "non parte"}, '
+       f'e alla fine tutto com\'era')
+base = copy.deepcopy(VALERIO)
+base['versione'] = '1.0.82'
+telefono(base)
+r = esploratore('--prova', '--monkey')
+ok('no, parte solo dalla 1.0.83 (installata: 1.0.82)' in r.stdout and 'non si tocca mai' in r.stdout,
+   '--prova: dice che con la 1.0.82 i tocchi a caso non partono e che la gestione degli accessi non si tocca')
 
 # 11. sul PC nessuna shell: niente shell=True, niente > o | fuori da "adb shell"/"exec-out"
 sorgente = open(ESPLORATORE, encoding='utf-8').read()

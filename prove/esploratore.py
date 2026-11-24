@@ -27,6 +27,9 @@ Telefono vero (lo riconosce da solo; --telefono-vero lo forza). Lì il giro non 
   - le impostazioni che cambia (dimensioni e densità dello schermo, tema scuro, carattere, rotazione, animazioni,
     schermo acceso, "non disturbare"...) le legge all'inizio e le rimette alla fine, anche se il giro si rompe a metà;
   - non cancella i dati dell'app (pm clear) senza --cancella-dati, e non fa lo stress test senza --monkey;
+  - non apre mai «Gestisci gli accessi» (muro e richieste: toccano tutti, e le notifiche arrivano a persone vere), e
+    se lo trova aperto non tocca niente; i tocchi a caso partono solo dalla versione 1.0.83, che durante le prove
+    quel foglio non lo apre;
   - parte solo con --senza-account (l'app non ha l'accesso con Google: niente di quello che tocca finisce nella
     collezione in cloud) oppure --anche-con-account (lo sceglie chi ha il telefono);
   - per la durata del giro accende "non disturbare", perché le schermate prendono anche le notifiche;
@@ -163,6 +166,16 @@ TELEFONO_VERO = '--telefono-vero' in OPZIONI or not emulatore()
 EVITA_ACCESSO = TELEFONO_VERO and '--anche-con-account' not in OPZIONI
 ACCESSO = re.compile(r'\baccedi\b|\bgoogle\b', re.I)
 EVITATI = set()
+# la gestione degli accessi (solo per l'amministratore: l'interruttore del muro e le decisioni sulle richieste) cambia
+# l'app per tutti e manda notifiche a persone vere: su nessun telefono il giro la apre. Se fosse aperta lo stesso (da
+# un'altra strada, o con un'etichetta cambiata), lì non tocca niente e torna indietro: il foglio e i suoi dialoghi
+# si riconoscono da quello che c'è scritto
+MAI_TOCCARE = re.compile(r'\bgestisci\b.*\baccess', re.I)
+GESTIONE_ACCESSI = re.compile(r'solo chi approvi può usare eurodex|^accendere il muro\?|^approvare .+\?$|^rifiutare .+\?$|'
+                              r'^togliere l.accesso a .+\?$', re.I)
+# i tocchi a caso arrivano dappertutto, anche lì: sul telefono vero partono solo con un'app che durante le prove
+# (debug.eurodex.prove=1) la gestione degli accessi non la apre
+MONKEY_DALLA = (1, 0, 83)
 
 
 class Impostazioni:
@@ -318,7 +331,11 @@ class Impostazioni:
         if TELEFONO_VERO:
             print('Telefono vero: schermo sempre acceso e "non disturbare" per la durata del giro;')
             print(f'  dati dell\'app: {"cancellati con pm clear" if "--cancella-dati" in OPZIONI else "non cancellati (serve --cancella-dati)"};')
-            print(f'  stress test (monkey): {"sì" if "--monkey" in OPZIONI else "no (serve --monkey)"};')
+            v = versione_app()
+            monkey = ('no (serve --monkey)' if '--monkey' not in OPZIONI else 'sì' if (v or (0,)) >= MONKEY_DALLA else
+                      f'no, parte solo dalla {scritta(MONKEY_DALLA)} (installata: {scritta(v)})')
+            print(f'  stress test (monkey): {monkey};')
+            print('  gestione degli accessi («Gestisci gli accessi»: muro e richieste): non si tocca mai;')
             print(f'  "Accedi con Google": {"si tocca" if not EVITA_ACCESSO else "non si tocca"}.')
         print('Con --prova non è stato cambiato niente.')
 
@@ -333,6 +350,7 @@ SPIEGAZIONE_ACCOUNT = """Telefono vero: per partire serve una scelta esplicita s
                        niente di quello che il giro tocca finisce nella collezione in cloud;
   --anche-con-account  il giro tocca tutto anche con l'accesso fatto: le modifiche (anche azzerare o ripristinare)
                        arrivano nella collezione in cloud e negli altri dispositivi dell'account.
+In tutti e due i casi la gestione degli accessi (solo per Valerio: muro e richieste) non si tocca mai.
 Non è stato cambiato niente. Per vedere cosa farebbe il giro: --prova"""
 
 
@@ -611,6 +629,11 @@ def osserva():
         if getattr(n, 'saltato', False):
             continue
         et = etichetta(nodi, n)
+        if MAI_TOCCARE.search(et or ''):
+            if et not in EVITATI:
+                EVITATI.add(et)
+                log(f'    (gestione degli accessi: non tocco «{et}»)')
+            continue
         if EVITA_ACCESSO and ACCESSO.search(et or ''):
             if et not in EVITATI:
                 EVITATI.add(et)
@@ -629,6 +652,14 @@ def osserva():
     firma = hashlib.md5('|'.join(f'{n.testo}{n.desc}{n.spuntato}' for n in app).encode()).hexdigest()[:10]
     titoli = [n.testo for n in app if n.testo and 3 < len(n.testo) < 40 and not n.clic and not n.cls.endswith('WebView')]
     nome = (titoli[0] if titoli else (controlli[0] if controlli else pk))[:40]
+    # la chiave resta quella dei controlli che ci sono: la schermata si riconosce, ma non ha niente da provare, e
+    # chi esplora torna indietro come da una schermata già vista tutta
+    gestione = next((t for t in (n.testo or n.desc for n in app) if GESTIONE_ACCESSI.search(t or '')), None)
+    if gestione:
+        if gestione not in EVITATI:
+            EVITATI.add(gestione)
+            log(f'    (gestione degli accessi aperta, «{gestione[:40]}»: non tocco niente e torno indietro)')
+        azioni = []
     return Stato(nodi, pk, chiave, firma, azioni, nome)
 
 
@@ -1428,9 +1459,24 @@ def percorso_leggibile(passi):
     return ' → '.join(str(p[0]) for p in passi) or "all'apertura"
 
 
+def versione_app():
+    """La versione dell'app installata, per esempio (1, 0, 83); None se non si legge."""
+    m = re.search(r'versionName=(\d+(?:\.\d+)*)\b', adb_shell('dumpsys', 'package', PKG, timeout=60))
+    return tuple(int(x) for x in m.group(1).split('.')) if m else None
+
+
+def scritta(v):
+    return '.'.join(map(str, v)) if v else 'versione non letta'
+
+
 def stress():
     if TELEFONO_VERO and '--monkey' not in OPZIONI:
         log('— Stress test: saltato sul telefono vero (serve --monkey) —')
+        return
+    if TELEFONO_VERO and (versione_app() or (0,)) < MONKEY_DALLA:
+        log(f'— Stress test: saltato. I tocchi a caso arrivano anche alla gestione degli accessi: sul telefono vero '
+            f'partono solo dalla {scritta(MONKEY_DALLA)}, che durante le prove non la apre (installata: '
+            f'{scritta(versione_app())}) —')
         return
     log('— Stress test: 3000 tocchi, scorrimenti e gesti a caso, 8 al secondo (monkey di Android) —')
     avvia(freddo=True)
