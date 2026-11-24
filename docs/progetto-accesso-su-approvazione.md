@@ -114,7 +114,8 @@ impedire, e non tocca i servizi.
   dall'approvato). `invia-avviso.py` li legge con l'SDK Admin e manda gli invii a gruppi.
 - **Sincronizzazione**: `avvisaDispositivi` manda ai token dei dispositivi di quell'account, non più all'argomento
   `c_<cid>`.
-- L'app nuova si disiscrive dagli argomenti vecchi.
+- L'app nuova si disiscrive dagli argomenti vecchi, nei tempi del §10.3: `aggiornamenti` solo dopo che il server manda
+  gli avvisi anche ai token.
 
 ### 4.6 Aggiornamenti e contenuti solo agli approvati
 
