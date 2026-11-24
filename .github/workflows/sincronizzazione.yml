@@ -51,14 +51,26 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/illvaleee/collezione-euro-download/main/CollezioneEuro.apk -o "$RUNNER_TEMP/pubblicato.apk"
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           CERT=$("$BT/apksigner" verify --print-certs "$RUNNER_TEMP/pubblicato.apk")
-          N=$(grep -c '^Signer #[0-9]* certificate SHA-256 digest:' <<< "$CERT" || true)
-          [ "$N" = 1 ] || { echo "::error title=Impronte::l'APK pubblicato ha $N firmatari, ne serve uno solo"; exit 1; }
-          SHA256=$(sed -n 's/^Signer #1 certificate SHA-256 digest: *//p' <<< "$CERT")
-          SHA1=$(sed -n 's/^Signer #1 certificate SHA-1 digest: *//p' <<< "$CERT")
+          # apksigner fino alla 36 scrive «Signer #1 certificate SHA-256 digest: …», dalla 37 «V3.0 Signer: certificate
+          # SHA-256 digest: …», una riga per schema di firma: si contano i certificati diversi, non le righe. Il «Source
+          # Stamp Signer» (il timbro di Play, se c'è) è un altro certificato e non conta
+          impronte() {
+            { grep -v 'Source Stamp' <<< "$CERT" || true; } | sed -nE "s/^.*Signer[^:]*:? *certificate $1 digest: *//p" \
+              | tr -d ': \r' | tr '[:upper:]' '[:lower:]' | sort -u
+          }
+          SHA256=$(impronte SHA-256)
+          SHA1=$(impronte SHA-1)
+          N=$(grep -c . <<< "$SHA256" || true)
+          [ "$N" = 1 ] || {
+            echo "::error title=Impronte::l'APK pubblicato ha $N certificati di firma, ne serve uno solo"
+            { grep -i 'signer' <<< "$CERT" || true; } | head -12   # (sono pubblici: stanno in ogni APK)
+            exit 1
+          }
           norm() { tr -d ': \n' | tr '[:lower:]' '[:upper:]'; }
           [ "$(norm <<< "$SHA256")" = "$(norm <<< "$ATTESA_SHA256")" ] \
             || { echo "::error title=Impronte::l'APK pubblicato non è firmato con il certificato di Eurodex: mi fermo"; exit 1; }
-          [ -n "$SHA1" ] || { echo "::error title=Impronte::impronta SHA-1 non trovata nell'APK pubblicato"; exit 1; }
+          [ "$(grep -c . <<< "$SHA1" || true)" = 1 ] \
+            || { echo "::error title=Impronte::impronta SHA-1 non trovata nell'APK pubblicato"; exit 1; }
           echo "sha1=$SHA1" >> "$GITHUB_OUTPUT"
           echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
           rm -f "$RUNNER_TEMP/pubblicato.apk"
