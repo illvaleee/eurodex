@@ -169,3 +169,37 @@ test('lo stesso amministratore nei tre posti: regole, funzioni e app', () => {
   assert.ok(a, 'in src/sync/accesso.ts manca UID_AMMINISTRATORE');
   assert.equal(a[1], m[1]);
 });
+
+test("invii indipendenti: se l'argomento dà errore il token parte lo stesso, e viceversa", async () => {
+  const partiti = [];
+  const invio = (nome, esito) => async () => {
+    partiti.push(nome);
+    if (esito instanceof Error) throw esito;
+    return esito;
+  };
+  assert.deepEqual(await L.inviiIndipendenti([invio('argomento', 'a'), invio('token', 2)]), ['a', 2]);
+  assert.deepEqual(partiti, ['argomento', 'token']);
+
+  const giu = new Error('argomento giù');
+  partiti.length = 0;
+  await assert.rejects(L.inviiIndipendenti([invio('argomento', giu), invio('token', 1)]), e => e === giu);
+  assert.deepEqual(partiti, ['argomento', 'token']);
+  partiti.length = 0;
+  await assert.rejects(L.inviiIndipendenti([invio('argomento', 'a'), invio('token', giu)]), e => e === giu);
+  assert.deepEqual(partiti, ['argomento', 'token']);
+
+  // un errore subito, prima ancora della promessa (per esempio da getMessaging()): l'altro invio parte lo stesso
+  partiti.length = 0;
+  const subito = () => {
+    partiti.push('argomento');
+    throw new Error('subito');
+  };
+  await assert.rejects(L.inviiIndipendenti([subito, invio('token', 1)]), /subito/);
+  assert.deepEqual(partiti, ['argomento', 'token']);
+
+  // tutti e due giù: nell'errore ci sono tutti e due
+  await assert.rejects(
+    L.inviiIndipendenti([invio('argomento', new Error('uno')), invio('token', new Error('due'))]),
+    e => e instanceof AggregateError && e.errors.map(x => x.message).join() === 'uno,due',
+  );
+});

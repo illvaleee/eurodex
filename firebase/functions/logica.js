@@ -145,6 +145,16 @@ function tokenDaTogliere(tokens, risposte) {
   return via;
 }
 
+/** Invii che non devono dipendere l'uno dall'altro (argomento e token): partono tutti anche se uno dà errore, anche
+ * subito, e alla fine l'errore si vede lo stesso, così resta nei log della funzione. Restituisce i risultati in ordine. */
+async function inviiIndipendenti(invii) {
+  const esiti = await Promise.allSettled(invii.map(async invio => invio()));
+  const errori = esiti.filter(e => e.status === 'rejected').map(e => e.reason);
+  if (errori.length === 1) throw errori[0];
+  if (errori.length > 1) throw new AggregateError(errori, `${errori.length} invii su ${invii.length} non sono partiti`);
+  return esiti.map(e => e.value);
+}
+
 /** L'amministratore: l'UID scritto in .env (lo stesso delle regole di Firestore). */
 function amministratore(env) {
   const uid = String((env && env.ADMIN_UID) || '').trim();
@@ -165,5 +175,6 @@ module.exports = {
   messaggioTolto,
   azioniCambioStato,
   tokenDaTogliere,
+  inviiIndipendenti,
   amministratore,
 };
