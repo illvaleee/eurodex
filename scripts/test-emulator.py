@@ -3,7 +3,7 @@
 # e controlla installazione, avvio, navigazione, backup su file, modalità scura,
 # backup automatico di Android (disinstalla e reinstalla) ed errori nel registro.
 # Uso: python3 scripts/test-emulator.py CollezioneEuro.apk cartella-risultati
-import os, re, subprocess, sys, time
+import json, os, re, subprocess, sys, time, zipfile
 import xml.etree.ElementTree as ET
 
 APK, OUT = sys.argv[1], sys.argv[2]
@@ -331,8 +331,25 @@ if MODE == 'sopra':
     MISS2 = number_before('mancanti')
     shot('nuova_mancanti')
     note(f'mancanti: prima {MISS1}, dopo {MISS2}')
-    # la moneta segnata è ancora segnata (il pezzo 2002 R risulta "selezionato" anche per TalkBack); le mancanti
-    # devono essere le stesse, a meno che nel frattempo il catalogo scaricato sia cambiato
+    # le mancanti dipendono dal catalogo dentro l'APK: se la versione nuova porta monete nuove (come quelle del 23/11),
+    # cambiano. Si conta come nella prova dell'aggiornamento: mancanti + varianti (scheda Extra) + segnate = pezzi del
+    # catalogo nuovo, così nessuna moneta segnata può sparire senza che si veda
+    segnate = (MISS0 - MISS1) if MISS0 is not None and MISS1 is not None else None
+    try:
+        with zipfile.ZipFile(NUOVA_APK) as z:
+            totale = sum(len(t['p']) for t in json.loads(z.read('assets/public/data/catalog.json'))['types'])
+    except Exception as e:
+        note(f'pezzi del catalogo nuovo non letti: {e}')
+        totale = None
+    varianti = 0
+    if visible('Extra'):
+        tap('Extra', exact=True)
+        varianti = number_before('varianti') or 0
+        shot('nuova_extra')
+    atteso = (totale - segnate) if totale and segnate is not None else MISS1
+    note(f'monete segnate: {segnate}, pezzi nel catalogo nuovo: {totale}, varianti nella scheda Extra: {varianti}, '
+         f'mancanti {MISS2} + varianti {varianti} = {(MISS2 or 0) + varianti}, atteso {atteso}')
+    # la moneta segnata è ancora segnata (il pezzo 2002 R risulta "selezionato" anche per TalkBack)
     tap('Catalogo', exact=True)
     tap('Elenco', exact=True, required=False)
     tap('Italia', scroll=8)
@@ -341,7 +358,8 @@ if MODE == 'sopra':
     pezzo = next((n for n in root.iter('node') if (n.get('text') or n.get('content-desc') or '').strip() in ('2002 R',)), None) if root is not None else None
     shot('nuova_pezzo_segnato')
     check(pezzo is not None and pezzo.get('checked') == 'true', 'dopo l\'aggiornamento la moneta segnata è ancora segnata')
-    check(MISS2 is not None and MISS2 == MISS1, 'dopo l\'aggiornamento il numero di mancanti è lo stesso')
+    check(MISS2 is not None and MISS2 + varianti == atteso,
+          'dopo l\'aggiornamento la collezione è ancora tutta lì (mancanti + varianti + segnate = pezzi del catalogo)')
     tap('Collezione', exact=True)
     check(visible('Preferite'), 'dopo l\'aggiornamento la preferita c\'è ancora')
     shot('nuova_collezione')
