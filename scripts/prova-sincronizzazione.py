@@ -1,6 +1,9 @@
 # Prova reale del server della sincronizzazione, fatta come la fa l'app (senza account, solo con il codice):
 # 1) scrive una collezione di prova e un "evento"; 2) controlla che il postino lo prenda e lo cancelli
 # (= notifica mandata); 3) controlla che le regole blocchino chi non ha il codice. Alla fine pulisce.
+# Col muro acceso (config/accesso, docs/progetto-accesso-su-approvazione.md) l'utente di prova non è approvato, perché
+# entra con un gettone del server e non con Google: la prova controlla che le regole lo tengano fuori, e l'evento lo
+# scrive l'amministratore, così il postino si prova lo stesso. Non scrive mai in accessi/ (niente notifiche a Valerio).
 import json, random, string, sys, time, urllib.request, urllib.error
 import os
 from google.oauth2 import service_account
@@ -9,8 +12,11 @@ from google.auth import crypt, jwt
 P = 'collezione-euro-24ecd'
 CHIAVE = json.load(open('native/google-services.json'))['client'][0]['api_key'][0]['current_key']
 DOCS = f'https://firestore.googleapis.com/v1/projects/{P}/databases/(default)/documents'
-SA = json.load(open(os.environ.get('FIREBASE_SA_FILE', 'keystore/firebase-invio.json')))
-# un utente di prova (come uno che ha fatto "Accedi con Google"), creato con un gettone firmato dal server
+SA_FILE = os.environ.get('FIREBASE_SA_FILE', 'keystore/firebase-invio.json')
+SA = json.load(open(SA_FILE))
+# l'amministratore (il service account): le regole per lui non valgono
+adm = AuthorizedSession(service_account.Credentials.from_service_account_file(SA_FILE, scopes=['https://www.googleapis.com/auth/cloud-platform']))
+# un utente di prova, creato con un gettone firmato dal server: per le regole ha fatto l'accesso, ma non con Google
 def utente(uid):
     ora = int(time.time())
     tok = jwt.encode(crypt.RSASigner.from_service_account_info(SA), {'iss': SA['client_email'], 'sub': SA['client_email'], 'uid': uid, 'iat': ora, 'exp': ora + 3600,
@@ -31,31 +37,62 @@ def app(metodo, url, corpo=None, gettone=True):   # come l'app: con il gettone d
     except urllib.error.HTTPError as e: return e.code, (e.read() or b'')[:300].decode('utf8', 'replace'), {}
 errori = []
 def ok(c, m): print(('✓ ' if c else '✗ ') + m); c or errori.append(m)
+
+# il muro, letto come lo leggono le regole: acceso solo se config/accesso c'è e "obbligatorio" è true
+r = adm.get(f'{DOCS}/config/accesso')
+if r.status_code not in (200, 404):
+    print(f'✗ non riesco a leggere config/accesso: {r.status_code} {r.text[:200]}'); sys.exit(1)
+INTERRUTTORE = r.status_code == 200
+MURO = INTERRUTTORE and r.json().get('fields', {}).get('obbligatorio', {}).get('booleanValue') is True
+print('✓ muro ' + ('ACCESO: l\'utente di prova non è approvato e deve restare fuori' if MURO else 'spento: l\'utente di prova usa la collezione come tutti'))
+s, _, _ = app('GET', f'{DOCS}/config/accesso', gettone=None)
+ok(s == (200 if INTERRUTTORE else 404), f'l\'app legge l\'interruttore del muro anche prima dell\'accesso ({s})')
+
 GET['t'] = utente(cid); t_altro = utente(altro)
-print('✓ utenti di prova creati (accesso come con Google)')
+print('✓ utenti di prova creati (gettone del server, non Google)')
 ora = int(time.time() * 1000)
-s, r, h = app('POST', f'{DOCS}:commit', {'writes': [
+EVENTO = {'did': {'stringValue': 'PROVAPROVA12'}, 'nome': {'stringValue': 'Prova automatica'}, 'ts': {'integerValue': str(ora)}, 'testo': {'stringValue': 'Prova del postino (nessuno la riceve)'}}
+SCRITTURE = {'writes': [
     {'update': {'name': f'projects/{P}/databases/(default)/documents/collezioni/{cid}', 'fields': {'creata': {'integerValue': str(ora)}}}},
     {'update': {'name': nome('stato/possedute'), 'fields': {'p': {'mapValue': {'fields': {'73-617': {'integerValue': str(ora)}}}}}}, 'updateMask': {'fieldPaths': ['p.`73-617`']}},
     {'update': {'name': nome('dispositivi/PROVAPROVA12'), 'fields': {'nome': {'stringValue': 'Prova'}, 'ultimo': {'integerValue': str(ora)}}}},
-    {'update': {'name': nome('eventi/prova' + str(ora)), 'fields': {'did': {'stringValue': 'PROVAPROVA12'}, 'nome': {'stringValue': 'Prova automatica'}, 'ts': {'integerValue': str(ora)}, 'testo': {'stringValue': 'Prova del postino (nessuno la riceve)'}}}},
-]})
-ok(s == 200, f'l\'app scrive la collezione dell\'account ({s} {r if s != 200 else ""})')
-print('   CORS per l\'app:', h.get('Access-Control-Allow-Origin') or h.get('access-control-allow-origin') or '(nessuna intestazione)')
+    {'update': {'name': nome('eventi/prova' + str(ora)), 'fields': EVENTO}},
+]}
 # formato attuale (dalla versione con l'orologio logico): voci divise in pochi documenti
 voce = {'mapValue': {'fields': {'e': {'mapValue': {'fields': {'73-617': {'mapValue': {'fields': {'v': {'booleanValue': True}, 't': {'stringValue': '00000000a-0000-PROVA'}}}}}}}}}}
-s, r, _ = app('PATCH', f'{DOCS}/collezioni/{cid}/voci/p3', {'fields': voce['mapValue']['fields']})
-ok(s == 200, f'l\'app scrive le voci della collezione (formato attuale) ({s})')
-s, _, _ = app('PATCH', f'{DOCS}/collezioni/{cid}/voci/qualsiasi', {'fields': voce['mapValue']['fields']})
-ok(s == 403, f'le regole accettano solo i documenti previsti ({s})')
-s, _, _ = app('PATCH', f'{DOCS}/collezioni/{cid}/voci/p4', {'fields': {**voce['mapValue']['fields'], 'altro': {'stringValue': 'x'}}})
-ok(s == 403, f'le regole rifiutano campi in più ({s})')
-s, r, _ = app('GET', f'{DOCS}/collezioni/{cid}/voci')
-ok(s == 200 and '73-617' in json.dumps(r), 'l\'app rilegge le voci')
-s, r, _ = app('GET', f'{DOCS}/collezioni/{cid}/stato/possedute')
-ok(s == 200 and '73-617' in json.dumps(r), 'l\'app rilegge la collezione dell\'account')
-s, r, _ = app('GET', f'{DOCS}/collezioni/{cid}/dispositivi')
-ok(s == 200 and 'Prova' in json.dumps(r), 'l\'app vede l\'elenco dei dispositivi')
+if not MURO:
+    s, r, h = app('POST', f'{DOCS}:commit', SCRITTURE)
+    ok(s == 200, f'l\'app scrive la collezione dell\'account ({s} {r if s != 200 else ""})')
+    evento_scritto = s == 200
+    print('   CORS per l\'app:', h.get('Access-Control-Allow-Origin') or h.get('access-control-allow-origin') or '(nessuna intestazione)')
+    s, r, _ = app('PATCH', f'{DOCS}/collezioni/{cid}/voci/p3', {'fields': voce['mapValue']['fields']})
+    ok(s == 200, f'l\'app scrive le voci della collezione (formato attuale) ({s})')
+    s, _, _ = app('PATCH', f'{DOCS}/collezioni/{cid}/voci/qualsiasi', {'fields': voce['mapValue']['fields']})
+    ok(s == 403, f'le regole accettano solo i documenti previsti ({s})')
+    s, _, _ = app('PATCH', f'{DOCS}/collezioni/{cid}/voci/p4', {'fields': {**voce['mapValue']['fields'], 'altro': {'stringValue': 'x'}}})
+    ok(s == 403, f'le regole rifiutano campi in più ({s})')
+    s, r, _ = app('GET', f'{DOCS}/collezioni/{cid}/voci')
+    ok(s == 200 and '73-617' in json.dumps(r), 'l\'app rilegge le voci')
+    s, r, _ = app('GET', f'{DOCS}/collezioni/{cid}/stato/possedute')
+    ok(s == 200 and '73-617' in json.dumps(r), 'l\'app rilegge la collezione dell\'account')
+    s, r, _ = app('GET', f'{DOCS}/collezioni/{cid}/dispositivi')
+    ok(s == 200 and 'Prova' in json.dumps(r), 'l\'app vede l\'elenco dei dispositivi')
+else:
+    s, _, _ = app('POST', f'{DOCS}:commit', SCRITTURE)
+    ok(s == 403, f'col muro acceso chi non è approvato non scrive la collezione ({s})')
+    s, _, _ = app('PATCH', f'{DOCS}/collezioni/{cid}/voci/p3', {'fields': voce['mapValue']['fields']})
+    ok(s == 403, f'… né le voci ({s})')
+    s, _, _ = app('GET', f'{DOCS}/collezioni/{cid}/voci')
+    ok(s == 403, f'… e non le legge ({s})')
+    s, _, _ = app('GET', f'{DOCS}/collezioni/{cid}')
+    ok(s == 403, f'… e non legge la collezione ({s})')
+    scritti = [rel or '(collezione)' for rel in ('', 'stato/possedute', 'voci/p3', 'dispositivi/PROVAPROVA12', f'eventi/prova{ora}')
+             if adm.get(f'{DOCS}/collezioni/{cid}' + ('/' + rel if rel else '')).status_code != 404]
+    ok(not scritti, 'infatti sul server non è stato scritto niente' if not scritti else f'sul server ci sono documenti scritti col muro acceso: {scritti}')
+    # l'evento lo scrive l'amministratore: così il postino si prova anche col muro acceso
+    r = adm.patch(f'{DOCS}/collezioni/{cid}/eventi/prova{ora}', json={'fields': EVENTO})
+    ok(r.ok, f'evento di prova scritto dall\'amministratore ({r.status_code})')
+    evento_scritto = r.ok
 s, _, _ = app('GET', f'{DOCS}/collezioni')
 ok(s == 403, f'non si possono elencare le collezioni ({s})')
 s, _, _ = app('GET', f'{DOCS}/collezioni/{cid}/stato/possedute', gettone=t_altro)
@@ -65,16 +102,18 @@ ok(s == 403, f'senza accesso non si legge niente ({s})')
 s, _, _ = app('GET', f'{DOCS}/collezioni/{cid}/eventi/prova{ora}')
 ok(s == 403, f'gli eventi non si leggono dall\'app ({s})')
 
-# il postino: l'evento deve sparire entro poco (vuol dire che la funzione è partita e ha mandato la notifica)
-cr = service_account.Credentials.from_service_account_file(os.environ.get('FIREBASE_SA_FILE', 'keystore/firebase-invio.json'), scopes=['https://www.googleapis.com/auth/cloud-platform'])
-adm = AuthorizedSession(cr)
-t0 = time.time(); preso = False
-while time.time() - t0 < 90:
-    if adm.get(f'{DOCS}/collezioni/{cid}/eventi/prova{ora}').status_code == 404: preso = True; break
-    time.sleep(1)
-ok(preso, f'il postino ha preso l\'evento e mandato la notifica in {time.time() - t0:.1f} s' if preso else 'il postino non ha preso l\'evento entro 90 s')
-# pulizia (come amministratore)
-for rel in ['stato/possedute', 'dispositivi/PROVAPROVA12', f'eventi/prova{ora}', '']:
+# il postino: l'evento deve sparire entro poco (vuol dire che la funzione è partita e ha mandato la notifica).
+# Se l'evento non è stato scritto non c'è niente da aspettare (sparirebbe "da solo" e sembrerebbe preso)
+if evento_scritto:
+    t0 = time.time(); preso = False
+    while time.time() - t0 < 90:
+        if adm.get(f'{DOCS}/collezioni/{cid}/eventi/prova{ora}').status_code == 404: preso = True; break
+        time.sleep(1)
+    ok(preso, f'il postino ha preso l\'evento e mandato la notifica in {time.time() - t0:.1f} s' if preso else 'il postino non ha preso l\'evento entro 90 s')
+else:
+    ok(False, 'il postino non si è potuto provare: l\'evento non è stato scritto')
+# pulizia (come amministratore), anche dei documenti che le regole avrebbero dovuto rifiutare
+for rel in ['stato/possedute', 'voci/p3', 'voci/p4', 'voci/qualsiasi', 'dispositivi/PROVAPROVA12', f'eventi/prova{ora}', '']:
     adm.delete(f'{DOCS}/collezioni/{cid}' + ('/' + rel if rel else ''))
 for u in (cid, altro):
     adm.post(f'https://identitytoolkit.googleapis.com/v1/projects/{P}/accounts:delete', json={'localId': u})
