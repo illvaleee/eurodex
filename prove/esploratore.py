@@ -20,14 +20,27 @@ telefono ruotato, e chiude con lo stress test di Android (monkey: migliaia di to
 
 Va bene per qualsiasi versione dell'app: se domani c'è una schermata nuova la trova da solo.
 
-Uso:  esploratore.py PACCHETTO CARTELLA_RISULTATI [minuti_di_esplorazione]
+Uso:  esploratore.py PACCHETTO CARTELLA_RISULTATI [minuti_di_esplorazione] [opzioni]
 Esce con 1 se trova errori (gli avvisi non bloccano, ma finiscono nel resoconto).
+
+Telefono vero (lo riconosce da solo; --telefono-vero lo forza). Lì il giro non deve lasciare tracce:
+  - le impostazioni che cambia (dimensioni e densità dello schermo, tema scuro, carattere, rotazione, animazioni,
+    schermo acceso, "non disturbare"...) le legge all'inizio e le rimette alla fine, anche se il giro si rompe a metà;
+  - non cancella i dati dell'app (pm clear) senza --cancella-dati, e non fa lo stress test senza --monkey;
+  - parte solo con --senza-account (l'app non ha l'accesso con Google: niente di quello che tocca finisce nella
+    collezione in cloud) oppure --anche-con-account (lo sceglie chi ha il telefono);
+  - per la durata del giro accende "non disturbare", perché le schermate prendono anche le notifiche;
+  - i risultati restano sul PC: contengono schermate del telefono.
+  --prova   legge e scrive soltanto cosa farebbe (impostazioni, giri, ripristino), senza toccare niente.
+Sul PC non usa nessuna shell (comandi come liste di argomenti): funziona uguale su Linux e su Windows.
 """
+import atexit
 import hashlib
 import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -35,9 +48,23 @@ import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
-PKG = sys.argv[1] if len(sys.argv) > 1 else 'it.collezione.euro'
-OUT = sys.argv[2] if len(sys.argv) > 2 else 'esplorazione'
-MINUTI = float(sys.argv[3]) if len(sys.argv) > 3 else 30
+# su Windows la console non è in UTF-8: accenti ed emoji delle schermate non devono fermare il giro
+for _flusso in (sys.stdout, sys.stderr):
+    try:
+        _flusso.reconfigure(encoding='utf-8', errors='replace')
+    except (AttributeError, ValueError):
+        pass
+
+OPZIONI_NOTE = {'--telefono-vero', '--cancella-dati', '--monkey', '--senza-account', '--anche-con-account', '--prova'}
+OPZIONI = {a for a in sys.argv[1:] if a.startswith('--')}
+ARGOMENTI = [a for a in sys.argv[1:] if not a.startswith('--')]
+if OPZIONI - OPZIONI_NOTE:
+    sys.exit(f'opzioni sconosciute: {" ".join(sorted(OPZIONI - OPZIONI_NOTE))} (note: {" ".join(sorted(OPZIONI_NOTE))})')
+if {'--senza-account', '--anche-con-account'} <= OPZIONI:
+    sys.exit('--senza-account e --anche-con-account insieme non hanno senso: scegline una')
+PKG = ARGOMENTI[0] if len(ARGOMENTI) > 0 else 'it.collezione.euro'
+OUT = ARGOMENTI[1] if len(ARGOMENTI) > 1 else 'esplorazione'
+MINUTI = float(ARGOMENTI[2]) if len(ARGOMENTI) > 2 else 30
 os.makedirs(OUT, exist_ok=True)
 INIZIO = time.time()
 LOG = open(os.path.join(OUT, 'diario.txt'), 'w', encoding='utf-8')
@@ -73,16 +100,32 @@ def problema(gravita, tipo, dove, cosa, foto=None):
 
 # ───────────────────────────── dispositivo ─────────────────────────────
 
-def sh(cmd, timeout=120):
+def sul_pc(argv, timeout=120):
+    """Un comando sul PC come lista di argomenti, senza shell: uguale su Linux e Windows. L'uscita si legge in UTF-8
+    (su Windows la codifica di sistema non è UTF-8, e l'albero delle schermate ha accenti ed emoji)."""
     try:
-        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
-        return ((r.stdout or '') + (r.stderr or '')).strip()
+        r = subprocess.run(argv, capture_output=True, timeout=timeout)
+        return (r.stdout.decode('utf-8', 'replace') + r.stderr.decode('utf-8', 'replace')).strip()
     except subprocess.TimeoutExpired:
         return 'TIMEOUT'
+    except OSError as e:
+        return f'ERRORE: {e}'
+
+
+def sh(cmd, timeout=120):
+    # una riga scritta come per una shell POSIX: la divide Python (shlex), poi niente shell. Nelle righe non ci sono
+    # variabili, $( ), > o |: quelli, se servono, vanno sul telefono dentro "adb shell"
+    return sul_pc(shlex.split(cmd), timeout)
 
 
 def adb(c, timeout=120):
-    return sh('adb ' + c, timeout)
+    return sul_pc(['adb'] + shlex.split(c), timeout)
+
+
+def adb_shell(*parti, timeout=120):
+    """Un comando sul telefono con ogni parte protetta per la shell del telefono: arrivano così come sono anche
+    spazi, <, >, &, virgolette (con adb('shell input text ...') la shell del telefono le interpretava)."""
+    return sul_pc(['adb', 'shell', ' '.join(shlex.quote(str(p)) for p in parti)], timeout)
 
 
 def schermo():
@@ -97,6 +140,163 @@ W, H, DPI = schermo()
 
 def dp(px):
     return px * 160 / DPI
+
+
+# ───────────────────────────── telefono vero ─────────────────────────────
+
+def emulatore():
+    for _ in range(6):     # adb che non risponde ancora: si riprova un po', poi nel dubbio è un telefono vero
+        risposte = [adb(f'shell getprop {p}', timeout=30).strip() for p in ('ro.kernel.qemu', 'ro.boot.qemu', 'ro.hardware')]
+        if any(r.startswith('ERRORE:') for r in risposte):
+            return False   # adb non c'è proprio: niente da riprovare
+        if not any(re.search(r'error|TIMEOUT|not found|no devices|offline', r) for r in risposte):
+            return '1' in risposte[:2] or risposte[2] in ('ranchu', 'goldfish')
+        time.sleep(5)
+    return False
+
+
+# se adb non risponde, emulatore() è falso: nel dubbio valgono le regole del telefono vero
+TELEFONO_VERO = '--telefono-vero' in OPZIONI or not emulatore()
+# senza account non si tocca "Accedi con Google": sul telefono vero entrerebbe con l'account vero
+EVITA_ACCESSO = TELEFONO_VERO and '--anche-con-account' not in OPZIONI
+ACCESSO = re.compile(r'\baccedi\b|\bgoogle\b', re.I)
+EVITATI = set()
+
+
+class Impostazioni:
+    """Le impostazioni del telefono che il giro cambia, o che servono durante il giro: lette all'inizio e rimesse
+    alla fine come erano (non quelle di fabbrica), anche se il giro si rompe a metà. Una lettura non riuscita
+    ('sconosciuto') non si tocca mai, così un adb che non risponde non cancella un'impostazione vera."""
+    SEMPLICI = [('system', 'font_scale'), ('system', 'accelerometer_rotation'), ('system', 'user_rotation'),
+                ('global', 'window_animation_scale'), ('global', 'transition_animation_scale'),
+                ('global', 'animator_duration_scale'), ('system', 'screen_off_timeout'),
+                ('global', 'stay_on_while_plugged_in'), ('system', 'show_touches'), ('system', 'pointer_location')]
+    # orari del tema scuro programmato: cmd uimode night li può cambiare, si rimettono dopo il modo
+    NOTTE = [('secure', 'ui_night_mode_custom_type'), ('secure', 'dark_theme_custom_start_time'),
+             ('secure', 'dark_theme_custom_end_time')]
+    ZEN = {'0': 'off', '1': 'priority', '2': 'none', '3': 'alarms'}   # zen_mode → cmd notification set_dnd
+
+    def __init__(self):
+        self.prima = None
+        self.chiuso = False
+
+    @staticmethod
+    def _semplice(spazio, chiave):
+        v = adb_shell('settings', 'get', spazio, chiave, timeout=30).strip()
+        if v == 'null':
+            return ('assente', None)
+        return ('valore', v) if re.fullmatch(r'[A-Za-z0-9_.:,+-]{1,64}', v) else ('sconosciuto', v[:80])
+
+    @staticmethod
+    def _wm(cosa):
+        out = adb_shell('wm', cosa, timeout=30)
+        if f'Physical {cosa}' not in out:
+            return ('sconosciuto', out[:80])
+        m = re.search(rf'Override {cosa}:\s*([0-9x]+)', out)
+        return ('valore', m.group(1)) if m else ('assente', None)
+
+    @staticmethod
+    def _notte():
+        m = re.search(r'Night mode:\s*([a-z_]+)', adb_shell('cmd', 'uimode', 'night', timeout=30))
+        return ('valore', m.group(1)) if m else ('sconosciuto', None)
+
+    def _leggi(self, nome):
+        if nome in ('wm_size', 'wm_density'):
+            return self._wm(nome[3:])
+        if nome == 'notte':
+            return self._notte()
+        spazio, chiave = {'zen': ('global', 'zen_mode'), 'aereo': ('global', 'airplane_mode_on'),
+                          'wifi': ('global', 'wifi_on')}.get(nome) or nome.split('/')
+        return self._semplice(spazio, chiave)
+
+    def nomi(self):
+        return (['wm_size', 'wm_density', 'notte'] + [f'{s}/{k}' for s, k in self.NOTTE + self.SEMPLICI] +
+                ['zen', 'aereo', 'wifi'])
+
+    def leggi(self):
+        self.prima = {n: self._leggi(n) for n in self.nomi()}
+        log('Impostazioni lette (alla fine si rimettono così): ' +
+            ', '.join(f'{n}={v if t == "valore" else t}' for n, (t, v) in self.prima.items()))
+
+    def _comando(self, nome):
+        tipo, v = self.prima[nome]
+        if nome in ('wm_size', 'wm_density'):
+            return ['wm', nome[3:], v if tipo == 'valore' else 'reset']
+        if nome == 'notte':
+            return ['cmd', 'uimode', 'night', v]
+        if nome == 'zen':
+            return ['cmd', 'notification', 'set_dnd', self.ZEN.get(v or '0', 'off')]
+        if nome == 'aereo':
+            return ['cmd', 'connectivity', 'airplane-mode', 'enable' if v == '1' else 'disable']
+        if nome == 'wifi':
+            return ['svc', 'wifi', 'disable' if v == '0' else 'enable']
+        spazio, chiave = nome.split('/')
+        return ['settings', 'put', spazio, chiave, v] if tipo == 'valore' else ['settings', 'delete', spazio, chiave]
+
+    def _uguale(self, nome, ora):
+        if nome == 'wifi':   # 1 e 2 sono tutti e due "acceso" (2: acceso anche in modalità aereo)
+            return ora[0] == 'valore' and (ora[1] == '0') == (self.prima[nome][1] == '0')
+        return ora == self.prima[nome]
+
+    def rimetti(self, *nomi):
+        """Rimette le impostazioni indicate com'erano all'inizio; restituisce quelle che non tornano."""
+        if not self.prima:
+            return []
+        mancate = []
+        for nome in nomi:
+            if self.prima[nome][0] == 'sconosciuto' or self._uguale(nome, self._leggi(nome)):
+                continue
+            cmd = self._comando(nome)
+            adb_shell(*cmd, timeout=30)
+            if not self._uguale(nome, self._leggi(nome)):
+                mancate.append(nome)
+                log(f'!! non riesco a rimettere {nome} com\'era: a mano, adb shell {shlex.join(cmd)}')
+        return mancate
+
+    def rimetti_tutto(self):
+        if not self.prima or self.chiuso:
+            return []
+        self.chiuso = True
+        mancate = self.rimetti(*self.nomi())
+        log('Impostazioni rimesse com\'erano.' if not mancate else f'!! Impostazioni NON rimesse: {", ".join(mancate)}')
+        return mancate
+
+    def piano(self):
+        """--prova: cosa farebbe il giro, senza toccare niente."""
+        print(f'Dispositivo: {"telefono vero" if TELEFONO_VERO else "emulatore"} · schermo {W}×{H} a {DPI} dpi')
+        print('Impostazioni adesso (alla fine del giro tornano così):')
+        for n, (t, v) in self.prima.items():
+            print(f'  {n}: {v if t == "valore" else t}' + ('  (lettura non riuscita: non si tocca)' if t == 'sconosciuto' else ''))
+        print('Giri con impostazioni diverse (dopo ognuno si rimette tutto com\'era):')
+        for nome, cosa, _, _ in GIRI:
+            print(f'  {nome}: {cosa}')
+        if TELEFONO_VERO:
+            print('Telefono vero: schermo sempre acceso e "non disturbare" per la durata del giro;')
+            print(f'  dati dell\'app: {"cancellati con pm clear" if "--cancella-dati" in OPZIONI else "non cancellati (serve --cancella-dati)"};')
+            print(f'  stress test (monkey): {"sì" if "--monkey" in OPZIONI else "no (serve --monkey)"};')
+            print(f'  "Accedi con Google": {"si tocca" if not EVITA_ACCESSO else "non si tocca"}.')
+        print('Con --prova non è stato cambiato niente.')
+
+
+IMP = Impostazioni()
+atexit.register(IMP.rimetti_tutto)
+# chiusura chiesta da fuori (per esempio dal sistema): si passa da finally e atexit come con Ctrl+C
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+
+SPIEGAZIONE_ACCOUNT = """Telefono vero: per partire serve una scelta esplicita sull'account.
+  --senza-account      nell'app su questo telefono NON c'è l'accesso con Google (esci dall'account prima del giro):
+                       niente di quello che il giro tocca finisce nella collezione in cloud;
+  --anche-con-account  il giro tocca tutto anche con l'accesso fatto: le modifiche (anche azzerare o ripristinare)
+                       arrivano nella collezione in cloud e negli altri dispositivi dell'account.
+Non è stato cambiato niente. Per vedere cosa farebbe il giro: --prova"""
+
+
+def prepara_telefono_vero():
+    if not OPZIONI & {'--senza-account', '--anche-con-account'}:
+        sys.exit(SPIEGAZIONE_ACCOUNT)
+    log('Telefono vero: schermo sempre acceso e "non disturbare" per la durata del giro (poi si rimettono)')
+    adb_shell('svc', 'power', 'stayon', 'usb', timeout=30)
+    adb_shell('cmd', 'notification', 'set_dnd', 'priority', timeout=30)
 
 
 def in_primo_piano():
@@ -134,7 +334,11 @@ N_FOTO = [0]
 def foto(nome):
     N_FOTO[0] += 1
     fn = f'{N_FOTO[0]:03d}_{re.sub(r"[^a-zA-Z0-9]+", "_", nome)[:50]}.png'
-    subprocess.run(f'adb exec-out screencap -p > "{OUT}/{fn}"', shell=True)
+    try:
+        with open(os.path.join(OUT, fn), 'wb') as f:
+            subprocess.run(['adb', 'exec-out', 'screencap', '-p'], stdout=f, timeout=60)
+    except (subprocess.TimeoutExpired, OSError):
+        pass
     return fn
 
 
@@ -305,11 +509,13 @@ def finestre_di_sistema(nodi):
 
 def salva_tracce_anr():
     """Le tracce di Android su cosa stava facendo l'app quando si è bloccata."""
+    if TELEFONO_VERO:
+        return      # su un telefono vero /data/anr non si legge senza root, e adb root non c'è
     adb('root', timeout=30)
     time.sleep(2)
     elenco = adb('shell ls -t /data/anr', timeout=30).split()
-    if elenco:
-        adb(f'pull /data/anr/{elenco[0]} "{OUT}/traccia_blocco.txt"', timeout=60)
+    if elenco and re.fullmatch(r'[\w.-]+', elenco[0]):
+        sul_pc(['adb', 'pull', f'/data/anr/{elenco[0]}', os.path.join(OUT, 'traccia_blocco.txt')], timeout=60)
         log(f'  (tracce del blocco salvate in traccia_blocco.txt)')
 
 
@@ -355,6 +561,11 @@ def osserva():
         if getattr(n, 'saltato', False):
             continue
         et = etichetta(nodi, n)
+        if EVITA_ACCESSO and ACCESSO.search(et or ''):
+            if et not in EVITATI:
+                EVITATI.add(et)
+                log(f'    (telefono vero senza account: non tocco «{et}»)')
+            continue
         forma = (n.cls.split('.')[-1], round(dp(n.w) / 8), round(dp(n.h) / 8))
         if n.campo:
             for t in TESTI_DA_SCRIVERE:
@@ -393,7 +604,7 @@ def indietro():
 
 
 def scrivi(testo):
-    adb('shell input text ' + shlex.quote(testo.replace(' ', '%s')))
+    adb_shell('input', 'text', testo.replace(' ', '%s'))
     time.sleep(0.4)
     adb('shell input keyevent 66')   # invio, come chi conferma la ricerca
 
@@ -601,7 +812,8 @@ def osserva_durante_gesto(area):
     """Legge lo schermo mentre il dito sta ancora tirando la pagina oltre la fine (lì si vedono i rimbalzi)."""
     x1, y1, x2, y2 = area or (0, int(H * 0.15), W, int(H * 0.85))
     x = (x1 + x2) // 2
-    p = subprocess.Popen(f'adb shell input swipe {x} {y1 + (y2 - y1) * 3 // 4} {x} {y1 + (y2 - y1) // 8} 3000', shell=True)
+    p = subprocess.Popen(['adb', 'shell', 'input', 'swipe', str(x), str(y1 + (y2 - y1) * 3 // 4), str(x),
+                          str(y1 + (y2 - y1) // 8), '3000'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(1.4)
     nodi = leggi_schermo()
     p.wait()
@@ -837,6 +1049,9 @@ def esegui(a, st):
 
 
 def avvia_da_capo(pulito=False):
+    if pulito and TELEFONO_VERO and '--cancella-dati' not in OPZIONI:
+        log('    (telefono vero: non cancello i dati dell\'app, serve --cancella-dati)')
+        pulito = False
     if pulito:
         adb(f'shell pm clear {PKG}')
         adb(f'shell pm grant {PKG} android.permission.POST_NOTIFICATIONS')
@@ -1043,14 +1258,32 @@ def numeri(st):
     return [n.testo for n in st.nodi if n.pkg == PKG and re.search(r'\d', n.testo)]
 
 
+def chiudi_invito(st):
+    """Il foglio «Stessa collezione su telefono e tablet» (Accedi con Google / Non ora) può comparire all'apertura e
+    coprire i numeri della schermata iniziale (foto 015_iniziale_senza_numeri.png della build della 1.0.81): si chiude
+    come farebbe una persona, con «Non ora». «Accedi con Google» qui non si tocca mai."""
+    n = next((x for x in st.nodi if x.pkg == PKG and x.testo.strip().lower() == 'non ora'), None)
+    if n is None:
+        return False
+    tocca(*n.centro)
+    log('    (sulla schermata iniziale c\'era l\'invito ad accedere con Google: chiuso con «Non ora»)')
+    time.sleep(1.5)
+    return True
+
+
 def numeri_iniziali(volte=6):
     """I numeri della schermata iniziale appena aperta, quando sono fermi: due letture uguali di fila a 2,5 secondi
     l'una dall'altra (all'avvio i contatori possono mostrare per un attimo valori calcolati prima che la collezione
-    sia caricata: consiglio di Claude 2 su #6). Si aspetta al massimo volte × 8 secondi in tutto."""
-    prima, atteso = [], 0.0
+    sia caricata: consiglio di Claude 2 su #6). Si aspetta al massimo volte × 8 secondi in tutto. Se i numeri non ci
+    sono perché li copre l'invito ad accedere, prima lo si chiude (al massimo tre volte)."""
+    prima, atteso, chiusi = [], 0.0, 0
     while atteso <= volte * 8:
         st = osserva()
         n = numeri(st) if st.pkg == PKG else []
+        if not n and chiusi < 3 and chiudi_invito(st):
+            chiusi += 1
+            prima = []
+            continue
         if n and n == prima:
             return n
         prima = n
@@ -1120,19 +1353,21 @@ def prova_persistenza():
 def giro_configurazione(nome, prepara, ripristina):
     log(f'— Giro con {nome} —')
     global W, H, DPI
-    prepara()
-    time.sleep(2)
-    W, H, DPI = schermo()
-    SOGLIA[0] = 0.45
-    for k, v in list(SCHERMATE.items())[:16]:
-        st = rifai_percorso(v['passi'])
-        if st is None or riconosci(st) != k:
-            continue
-        fn = foto(f'{nome}_{v["nome"]}')
-        controlla(st, v['nome'], fn, nome)
-        controlla_sovrapposizioni(st, f"{v['nome']} · {nome}", fn)
-        controlla_salute(v['nome'], f'apertura con {nome}')
-    ripristina()
+    try:
+        prepara()
+        time.sleep(2)
+        W, H, DPI = schermo()
+        SOGLIA[0] = 0.45
+        for k, v in list(SCHERMATE.items())[:16]:
+            st = rifai_percorso(v['passi'])
+            if st is None or riconosci(st) != k:
+                continue
+            fn = foto(f'{nome}_{v["nome"]}')
+            controlla(st, v['nome'], fn, nome)
+            controlla_sovrapposizioni(st, f"{v['nome']} · {nome}", fn)
+            controlla_salute(v['nome'], f'apertura con {nome}')
+    finally:
+        ripristina()
     SOGLIA[0] = 0.8
     time.sleep(2)
     W, H, DPI = schermo()
@@ -1144,10 +1379,19 @@ def percorso_leggibile(passi):
 
 
 def stress():
+    if TELEFONO_VERO and '--monkey' not in OPZIONI:
+        log('— Stress test: saltato sul telefono vero (serve --monkey) —')
+        return
     log('— Stress test: 3000 tocchi, scorrimenti e gesti a caso, 8 al secondo (monkey di Android) —')
     avvia(freddo=True)
     PID[0] = pid()
-    out = adb(f'shell monkey -p {PKG} --pct-syskeys 0 --pct-appswitch 0 --throttle 120 -s 2611 -v 3000', timeout=900)
+    extra = ' --pct-anyevent 0' if TELEFONO_VERO else ''
+    out = adb(f'shell monkey -p {PKG} --pct-syskeys 0 --pct-appswitch 0{extra} --throttle 120 -s 2611 -v 3000', timeout=900)
+    if TELEFONO_VERO:
+        # uno scorrimento dal bordo può aprire le impostazioni rapide (Wi-Fi, modalità aereo): si rimettono subito,
+        # e "non disturbare" resta acceso fino alla fine del giro
+        IMP.rimetti('aereo', 'wifi')
+        adb_shell('cmd', 'notification', 'set_dnd', 'priority', timeout=30)
     open(os.path.join(OUT, 'stress.txt'), 'w').write(out)
     if re.search(r'CRASH', out):
         problema('errore', 'crash', 'stress test', 'l\'app si è chiusa durante i tocchi a raffica', foto('stress'))
@@ -1161,10 +1405,50 @@ def stress():
 
 # ───────────────────────────── via ─────────────────────────────
 
+# giri con impostazioni diverse: (nome, cosa cambia, prepara, rimette com'era all'inizio del giro intero)
+GIRI = [
+    ('tema scuro', 'cmd uimode night yes', lambda: adb('shell cmd uimode night yes'),
+     lambda: IMP.rimetti('notte', *(f'{s}/{k}' for s, k in Impostazioni.NOTTE))),
+    ('carattere grande', 'font_scale 1.3', lambda: adb('shell settings put system font_scale 1.3'),
+     lambda: IMP.rimetti('system/font_scale')),
+    ('schermo piccolo', 'wm size 720x1280, wm density 320',
+     lambda: (adb('shell wm size 720x1280'), adb('shell wm density 320')), lambda: IMP.rimetti('wm_size', 'wm_density')),
+    ('tablet', 'wm size 1600x2560, wm density 320',
+     lambda: (adb('shell wm size 1600x2560'), adb('shell wm density 320')), lambda: IMP.rimetti('wm_size', 'wm_density')),
+    ('telefono ruotato', 'rotazione automatica spenta, user_rotation 1',
+     lambda: (adb('shell settings put system accelerometer_rotation 0'), adb('shell settings put system user_rotation 1')),
+     lambda: IMP.rimetti('system/accelerometer_rotation', 'system/user_rotation')),
+]
+
+
 def main():
-    log(f'Esploratore su {PKG} · schermo {W}×{H} a {DPI} dpi · {MINUTI:.0f} minuti di esplorazione')
+    IMP.leggi()
+    if '--prova' in OPZIONI:
+        IMP.piano()
+        return
+    codice, mancate = 0, []
+    try:
+        if TELEFONO_VERO:
+            prepara_telefono_vero()
+        giro()
+    except SystemExit as e:
+        if isinstance(e.code, str):
+            print(e.code, file=sys.stderr)
+            codice = 2
+        else:
+            codice = e.code or 0
+    finally:
+        mancate = IMP.rimetti_tutto()
+    if TELEFONO_VERO:
+        log(f'I risultati sono in {os.path.abspath(OUT)}: contengono schermate del telefono e restano su questo PC.')
+    sys.exit(codice or (1 if mancate else 0))
+
+
+def giro():
+    log(f'Esploratore su {PKG} · {"telefono vero" if TELEFONO_VERO else "emulatore"} · schermo {W}×{H} a {DPI} dpi · '
+        f'{MINUTI:.0f} minuti di esplorazione')
     # l'emulatore appena acceso è ancora occupato ad avviare i servizi di sistema: si lascia finire
-    for _ in range(12):
+    for _ in range(0 if TELEFONO_VERO else 12):
         carico = adb('shell cat /proc/loadavg').split()
         if carico and float(carico[0]) < 3.0:
             break
@@ -1172,7 +1456,8 @@ def main():
     finestre_di_sistema(leggi_schermo())
     adb('logcat -c')
     adb('logcat -b crash -c')
-    adb('shell settings put system font_scale 1.0')
+    if not TELEFONO_VERO:
+        adb('shell settings put system font_scale 1.0')   # sul telefono vero resta quello scelto da chi lo usa
     t = avvia(freddo=True)
     log(f'Apertura a freddo: {t} ms')
     if t and t > 8000:   # emulatore senza scheda video: un telefono vero è molto più veloce
@@ -1189,16 +1474,8 @@ def main():
         f'{CONTEGGI["senza_effetto"]} senza effetto visibile, {CONTEGGI["uscite"]} verso altre app'
         f'{" · tempo finito" if tempo_finito() else " · visto tutto"}')
     prova_persistenza()
-    giro_configurazione('tema scuro', lambda: adb('shell cmd uimode night yes'), lambda: adb('shell cmd uimode night no'))
-    giro_configurazione('carattere grande', lambda: adb('shell settings put system font_scale 1.3'),
-                        lambda: adb('shell settings put system font_scale 1.0'))
-    giro_configurazione('schermo piccolo', lambda: (adb('shell wm size 720x1280'), adb('shell wm density 320')),
-                        lambda: (adb('shell wm size reset'), adb('shell wm density reset')))
-    giro_configurazione('tablet', lambda: (adb('shell wm size 1600x2560'), adb('shell wm density 320')),
-                        lambda: (adb('shell wm size reset'), adb('shell wm density reset')))
-    giro_configurazione('telefono ruotato', lambda: (adb('shell settings put system accelerometer_rotation 0'),
-                                                     adb('shell settings put system user_rotation 1')),
-                        lambda: adb('shell settings put system user_rotation 0'))
+    for nome, _, prepara, rimetti in GIRI:
+        giro_configurazione(nome, prepara, rimetti)
     stress()
 
     errori = [p for p in PROBLEMI if p['gravita'] == 'errore']

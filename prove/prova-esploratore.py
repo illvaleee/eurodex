@@ -191,6 +191,37 @@ E.persistenza_dalla_home('non riesco a tornare alla stessa schermata')
 diario = open(os.path.join(sys.argv[2], 'diario.txt'), encoding='utf-8').read()
 ok('Benvenuto in Eurodex' in diario and 'in primo piano' in diario, 'senza numeri il diario dice app e testi sullo schermo')
 
+# 7c. sulla schermata iniziale l'invito «Accedi con Google / Non ora» copre i numeri (build della 1.0.81): si chiude
+#     con «Non ora», si legge, e «Accedi con Google» non si tocca mai
+pulisci()
+finta_riapertura([], [])
+stato_invito = {'aperto': True}
+toccati = []
+
+
+def osserva_con_invito():
+    nodi = ([nodo(0, 'Stessa collezione su telefono e tablet', (0, 900, 1080, 1000), clic=False),
+             nodo(1, 'Accedi con Google', (100, 1500, 980, 1640)),
+             nodo(2, 'Non ora', (100, 1680, 980, 1800))] if stato_invito['aperto'] else [])
+    return E.Stato(nodi=indicizza(nodi), pkg=PKG, chiave='home', firma='', azioni=[], nome='Eurodex')
+
+
+def tocca_finto(x, y):
+    toccati.append((x, y))
+    if 1680 <= y <= 1800:
+        stato_invito['aperto'] = False
+
+
+E.osserva = osserva_con_invito
+E.tocca = tocca_finto
+E.numeri = lambda st: [] if stato_invito['aperto'] else ['1575', '4818']
+E.avvia = lambda *a, **k: stato_invito.update(aperto=True)   # ogni apertura rimette l'invito
+E.persistenza_dalla_home('non riesco a tornare alla stessa schermata')
+diario = open(os.path.join(sys.argv[2], 'diario.txt'), encoding='utf-8').read()
+ok(not E.PROBLEMI and diario.count('chiuso con «Non ora»') >= 2 and diario.count('tutto come prima') >= 3,
+   'l\'invito «Accedi con Google / Non ora» sulla schermata iniziale si chiude con «Non ora» e il controllo si fa')
+ok(len(toccati) == 2 and all(1680 <= y <= 1800 for _, y in toccati), 'si tocca solo «Non ora», mai «Accedi con Google»')
+
 # 8. il resoconto finale: i percorsi delle schermate si scrivono senza far cadere l'esploratore (prima cercava un campo
 #    'percorso' che non esiste: KeyError alla fine di ogni esplorazione, quindi il job falliva sempre)
 az = E.Azione(tipo='tocca', etichetta='Mancanti', forma=('Button', 1, 1), centro=(1, 1))
