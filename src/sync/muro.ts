@@ -4,7 +4,7 @@ import { registraErrore } from '../core/errori';
 import { Nativo, nativo } from '../nativo/plugin';
 import { avviso } from '../ui/avvisi';
 import { schermataMuro } from '../viste/muro';
-import type { StatoAccesso } from './accesso';
+import type { MotivoTentativo, StatoAccesso } from './accesso';
 import { decidiMuro, indirizzoConfig, obbligoDaDocumento, pulitoPerRichiesta, type EsitoMuro } from './muro-logica';
 import {
   accedi,
@@ -13,35 +13,61 @@ import {
   idDispositivo,
   infoDispositivo,
   modelloLeggibile,
+  seguiAccessiGoogle,
   sincronizzazioneAttiva,
   sync,
   type EsitoAccesso,
 } from './sincronizzazione';
 
 /**
- * Il muro dell'accesso su approvazione, dalla parte dell'app (docs/progetto-accesso-su-approvazione.md): quando
- * Valerio lo accende, chi non è approvato vede solo la schermata per accedere e chiedere l'accesso. È una cortesia:
- * il muro vero sono le regole di Firestore, che senza approvazione non danno né sincronizzazione né notifiche.
- * Finché il muro è spento, qui non succede niente (e Firebase non si carica nemmeno).
+ * Il muro dell'accesso su approvazione, dalla parte dell'app (docs/progetto-accesso-su-approvazione.md e scelte di
+ * Valerio del 21/11):
+ * - ogni accesso con Google fatto dalla persona è un tentativo: la funzione tentativoDiAccesso crea la richiesta
+ *   dell'account nuovo, oppure avvisa Valerio che uno già deciso è rientrato (approvato o rifiutato in automatico);
+ * - muro acceso: chi non è approvato vede solo la schermata per accedere, quella di attesa o il no, e uscendo
+ *   dall'account si torna lì; muro spento: tutti dentro, tranne gli account rifiutati o a cui Valerio ha tolto
+ *   l'accesso.
+ * È una cortesia: il muro vero sono le regole di Firestore. Senza account e con il muro spento qui non succede
+ * niente (e Firebase non si carica nemmeno).
  */
 
 const LS = 'eurodex.muro';
 const LS_DID = 'eurodex.muro.did';
+/** l'ultimo token registrato (uid|did|token): niente scritture a ogni avvio */
+const LS_TOKEN = 'eurodex.muro.token';
+/** account già fatti vedere a Valerio al primo avvio con questa versione (chi c'era già prima) */
+const LS_PRIMO = 'eurodex.muro.primo';
+/** l'ultimo account entrato su questo telefono (lo scrive accesso.ts: ricordaStato) */
+const LS_ACCOUNT = 'eurodex.accesso';
+const UN_MINUTO = 60 * 1000;
 
-function leggiSalvato(): boolean {
+function leggi(k: string): string | null {
   try {
-    return localStorage.getItem(LS) === '1';
+    return localStorage.getItem(k);
   } catch {
-    return false;
+    return null;
   }
 }
 
-let obbligo = leggiSalvato();
+function scrivi(k: string, v: string | null): void {
+  try {
+    if (v === null) localStorage.removeItem(k);
+    else localStorage.setItem(k, v);
+  } catch {
+    // memoria non disponibile: alla prossima apertura si rifà
+  }
+}
+
+let obbligo = leggi(LS) === '1';
 let esito: EsitoMuro = 'aperto';
 let utente: { uid: string; email: string; nome: string } | null = null;
 let statoAccesso: StatoAccesso = 'nessuno';
 let seguito: { uid: string; smetti: () => void } | null = null;
 let tokenRegistrato = '';
+/** account con un tentativo appena partito: la schermata aspetta la risposta invece di chiedere */
+const inviati = new Set<string>();
+/** «Chiedi di nuovo»: quando, per non farlo premere di continuo (Valerio riceve al massimo una notifica al minuto) */
+let ancoraAlle = 0;
 
 const accesso = () => import('./accesso');
 const firebase = () => import('./firebase');
@@ -53,11 +79,7 @@ export const muroAcceso = (): boolean => obbligo;
 
 function ricordaObbligo(v: boolean): void {
   obbligo = v;
-  try {
-    localStorage.setItem(LS, v ? '1' : '0');
-  } catch {
-    // memoria non disponibile: alla prossima apertura si rilegge dal server
-  }
+  scrivi(LS, v ? '1' : '0');
 }
 
 /** L'interruttore letto dal server, senza accesso e senza caricare Firebase. Senza rete resta quello di prima. */
@@ -94,44 +116,107 @@ function mostra(nuovo: EsitoMuro): void {
     document.body.appendChild(el);
   }
   document.body.classList.add('con-muro');
-  render(schermataMuro(nuovo, utente?.email ?? ''), el);
+  render(schermataMuro(nuovo, utente?.email ?? '', Date.now() - ancoraAlle < UN_MINUTO), el);
 }
 
 /**
  * Il muro si è appena tolto (approvato, oppure Valerio l'ha spento): parte, o riparte, la sincronizzazione con
- * l'account con cui si è entrati, senza chiedere niente.
+ * l'account con cui si è entrati, senza chiedere niente. Una volta sola anche se il muro si toglie da due parti
+ * insieme (notifica, ritorno nell'app, risposta del server).
  */
-async function riprendi(approvato: boolean): Promise<void> {
-  if (!utente) return;
-  if (approvato) avviso('Accesso approvato ✓ Benvenuto in Eurodex', 5000);
-  if (!sincronizzazioneAttiva() || sync?.scaduto || sync?.uid !== utente.uid) {
-    const r = await accedi(true);
-    if (!r.ok) registraErrore('sincronizzazione dopo il muro', r.dettaglio ?? r.motivo);
+let riprendendo = false;
+
+async function riprendi(benvenuto: boolean): Promise<void> {
+  if (!utente || riprendendo) return;
+  riprendendo = true;
+  try {
+    if (benvenuto) avviso('Accesso approvato ✓ Benvenuto in Eurodex', 5000);
+    if (!sincronizzazioneAttiva() || sync?.scaduto || sync?.uid !== utente.uid) {
+      const r = await accedi(true);
+      if (!r.ok) registraErrore('sincronizzazione dopo il muro', r.dettaglio ?? r.motivo);
+    }
+    await registraToken();
+  } finally {
+    riprendendo = false;
   }
+}
+
+function smettiDiSeguire(): void {
+  seguito?.smetti();
+  seguito = null;
 }
 
 function segui(uid: string): void {
   if (seguito?.uid === uid) return;
-  seguito?.smetti();
-  seguito = { uid, smetti: () => undefined };
-  const questo = seguito;
+  smettiDiSeguire();
+  const questo: { uid: string; smetti: () => void } = { uid, smetti: () => undefined };
+  seguito = questo;
   void accesso().then(a => {
     if (seguito !== questo) return;
-    questo.smetti = a.seguiAccesso(uid, s => {
-      statoAccesso = s;
-      a.ricordaStato(uid, s);
-      void valuta();
-    });
+    questo.smetti = a.seguiAccesso(
+      uid,
+      (s, dalServer) => {
+        statoAccesso = s;
+        a.ricordaStato(uid, s);
+        // chi usava già Eurodex prima di questa versione: al primo avvio Valerio lo vede (in attesa nell'elenco)
+        if (s === 'nessuno' && dalServer && !inviati.has(uid) && !giaVisto(uid)) void primoAvvio(uid);
+        void valuta().catch((e: unknown) => registraErrore('controllo del muro', e));
+      },
+      // ascolto fermato (account uscito, rete persa a lungo): al prossimo controllo si riparte
+      () => {
+        if (seguito === questo) seguito = null;
+      },
+    );
   });
+}
+
+const giaVisto = (uid: string): boolean => (leggi(LS_PRIMO) ?? '').split(',').includes(uid);
+
+async function primoAvvio(uid: string): Promise<void> {
+  if (await tentativo(uid, 'primo'))
+    scrivi(LS_PRIMO, [...(leggi(LS_PRIMO) ?? '').split(',').filter(Boolean), uid].join(','));
+}
+
+/** Un tentativo di accesso di questo account: lo legge la funzione, che decide e avvisa Valerio. */
+async function tentativo(uid: string, motivo: MotivoTentativo): Promise<boolean> {
+  inviati.add(uid);
+  try {
+    const a = await accesso();
+    await a.registraTentativo(uid, pulitoPerRichiesta(modelloLeggibile(await infoDispositivo())), motivo);
+    return true;
+  } catch (e) {
+    // l'accesso rifatto subito dopo (la sincronizzazione che riparte) fa rimandare la scrittura già arrivata: c'è
+    if ((e as { code?: unknown } | null)?.code === 'already-exists') return true;
+    inviati.delete(uid);
+    registraErrore('tentativo di accesso', e);
+    return false;
+  }
+}
+
+/** L'account con cui si è entrati l'ultima volta su questo telefono, senza caricare Firebase. */
+function accountQui(): boolean {
+  try {
+    return !!(JSON.parse(leggi(LS_ACCOUNT) ?? 'null') as { uid?: unknown } | null)?.uid;
+  } catch {
+    return false;
+  }
+}
+
+/** Cambia schermata. Il «prima» si legge qui, subito prima di cambiare: se due controlli finiscono insieme, solo
+ * uno vede il cambio (e la sincronizzazione riparte una volta sola). */
+function cambia(nuovo: EsitoMuro, approvato: boolean): EsitoMuro {
+  const prima = esito;
+  mostra(nuovo);
+  // il benvenuto solo per un'approvazione vera (non per chi è già approvato e ha appena rifatto l'accesso)
+  if (prima !== 'aperto' && nuovo === 'aperto') void riprendi(approvato && prima !== 'accedi');
+  return nuovo;
 }
 
 /** Decide di nuovo cosa mostrare, con quello che si sa adesso (interruttore, account, stato della richiesta). */
 async function valuta(): Promise<EsitoMuro> {
-  const prima = esito;
-  if (!obbligo) {
-    mostra('aperto');
-    if (prima !== 'aperto') void riprendi(false);
-    return 'aperto';
+  if (!obbligo && !utente && !sincronizzazioneAttiva() && !accountQui()) {
+    smettiDiSeguire();
+    return cambia('aperto', false);
   }
   const [f, a] = await Promise.all([firebase(), accesso()]);
   const u = await f.utenteSalvato();
@@ -141,15 +226,15 @@ async function valuta(): Promise<EsitoMuro> {
     if (seguito?.uid !== utente.uid) statoAccesso = a.ultimoStato(utente.uid);
     segui(utente.uid);
   } else {
-    seguito?.smetti();
-    seguito = null;
+    smettiDiSeguire();
     statoAccesso = 'nessuno';
   }
-  const nuovo = decidiMuro({ obbligo, uid: utente?.uid ?? null, admin, stato: statoAccesso });
-  mostra(nuovo);
-  if (prima !== 'aperto' && nuovo === 'aperto') void riprendi(statoAccesso === 'approvato');
-  if (nuovo === 'attesa' || admin) void registraToken();
-  return nuovo;
+  if (utente) void registraToken();
+  const inviato = !!utente && inviati.has(utente.uid);
+  return cambia(
+    decidiMuro({ obbligo, uid: utente?.uid ?? null, admin, stato: statoAccesso, inviato }),
+    statoAccesso === 'approvato',
+  );
 }
 
 /**
@@ -166,11 +251,10 @@ export async function controllaMuro(): Promise<boolean> {
   }
 }
 
-/** Al ritorno nell'app e dopo una notifica: l'interruttore potrebbe essere cambiato. */
+/** Al ritorno nell'app e dopo una notifica: l'interruttore o lo stato dell'account potrebbero essere cambiati. */
 export async function aggiornaMuro(): Promise<void> {
-  const prima = obbligo;
   await leggiObbligo(8000);
-  if (obbligo !== prima || obbligo) await valuta().catch((e: unknown) => registraErrore('controllo del muro', e));
+  await valuta().catch((e: unknown) => registraErrore('controllo del muro', e));
 }
 
 /** Valerio ha appena cambiato l'interruttore da questo telefono. */
@@ -179,49 +263,110 @@ export function muroCambiato(v: boolean): void {
   void valuta().catch((e: unknown) => registraErrore('controllo del muro', e));
 }
 
+/** Il codice di questo telefono per gli avvisi dell'accesso: quello della sincronizzazione, se c'è. */
+function didAccesso(): string {
+  const d = idDispositivo();
+  if (d) return d;
+  let x = leggi(LS_DID);
+  if (!x) {
+    x = casuale(12);
+    scrivi(LS_DID, x);
+  }
+  return x;
+}
+
 /**
- * Il telefono di Valerio riceve le richieste nuove, quello di chi aspetta la risposta riceve l'approvazione: il
- * token per le notifiche dirette va scritto sotto il suo account (le regole lo permettono solo a lui).
+ * Il token di questo telefono per le notifiche dirette, sotto l'account con cui si è entrati: a Valerio arrivano
+ * richieste e tentativi, agli altri l'approvazione o l'accesso tolto (e gli avvisi della sincronizzazione).
  */
 async function registraToken(): Promise<void> {
   if (!nativo() || !utente) return;
+  const uid = utente.uid;
   try {
     const { token } = await Nativo.tokenNotifiche();
-    if (!token || token === tokenRegistrato) return;
-    const a = await accesso();
-    let did = idDispositivo();
-    if (!did) {
-      did = localStorage.getItem(LS_DID) ?? casuale(12);
-      localStorage.setItem(LS_DID, did);
+    if (!token) return;
+    const did = didAccesso();
+    const chiave = `${uid}|${did}|${token}`;
+    if (chiave === tokenRegistrato || chiave === leggi(LS_TOKEN)) {
+      tokenRegistrato = chiave;
+      return;
     }
-    const nome = sync?.nome || modelloLeggibile(await infoDispositivo());
-    if (await a.registraDispositivo(utente.uid, did, token, pulitoPerRichiesta(nome))) tokenRegistrato = token;
+    const nome = pulitoPerRichiesta(sync?.nome || modelloLeggibile(await infoDispositivo()));
+    if (await (await accesso()).registraDispositivo(uid, did, token, nome)) {
+      tokenRegistrato = chiave;
+      scrivi(LS_TOKEN, chiave);
+    }
   } catch (e) {
     // senza servizi Google o senza rete: niente notifiche dirette, il resto funziona
     registraErrore('registrazione per le notifiche dirette', e);
   }
 }
 
-/** Dopo «Chiedi l'accesso» dalle impostazioni: il telefono si registra per l'avviso di approvazione. */
-export async function dopoRichiesta(): Promise<void> {
+/** Uscendo dall'account (serve ancora l'accesso): questo telefono non riceve più gli avvisi di quell'account. */
+async function togliToken(uid: string): Promise<void> {
+  const registrato = leggi(LS_TOKEN)?.split('|') ?? [];
+  const did = registrato[0] === uid && registrato[1] ? registrato[1] : didAccesso();
+  scrivi(LS_TOKEN, null);
+  tokenRegistrato = '';
+  try {
+    await (await accesso()).togliDispositivo(uid, did);
+  } catch {
+    // senza rete: il telefono resta registrato, e gli avvisi che arrivano trovano il muro
+  }
+}
+
+/** Uscito dall'account: con il muro acceso si torna subito alla schermata di accesso. */
+async function dopoUscita(): Promise<void> {
+  smettiDiSeguire();
+  utente = null;
+  statoAccesso = 'nessuno';
+  (await accesso()).dimenticaStato();
+  await valuta().catch((e: unknown) => registraErrore('controllo del muro', e));
+}
+
+/** Ogni accesso con Google fatto dalla persona (dal muro, dalle impostazioni, dopo una reinstallazione). */
+async function dopoAccessoGoogle(uid: string): Promise<void> {
+  const a = await accesso();
+  if (a.eAmministratore(uid)) return;
+  await tentativo(uid, 'accesso');
+  // dal muro decide muroAccedi, dopo aver letto lo stato vero (niente «Richiesta inviata» per un attimo a chi è già
+  // approvato); dalle impostazioni si controlla subito (un account escluso vede il no anche col muro spento)
+  if (esito !== 'accedi') await valuta().catch((e: unknown) => registraErrore('controllo del muro', e));
+}
+
+/** Il tentativo dell'ultimo accesso, finché non è scritto (il muro lo aspetta prima di far ripartire la
+ * sincronizzazione, che rifà l'accesso: così la scrittura non riparte due volte). */
+let tentativoInCorso: Promise<void> = Promise.resolve();
+
+seguiAccessiGoogle({
+  accesso: uid => {
+    tentativoInCorso = dopoAccessoGoogle(uid).catch((e: unknown) => registraErrore('tentativo di accesso', e));
+  },
+  primaDiUscire: uid => togliToken(uid),
+  uscito: () => void dopoUscita(),
+});
+
+/** Dopo la sincronizzazione all'avvio, e quando Valerio apre la sua sezione: il telefono riceve gli avvisi. */
+export async function preparaNotifiche(): Promise<void> {
   if (!sync) return;
-  utente = { uid: sync.uid, email: sync.email, nome: sync.account };
+  utente ??= { uid: sync.uid, email: sync.email, nome: sync.account };
   await registraToken();
 }
 
-/** Per Valerio, a ogni avvio con l'accesso fatto: così le richieste nuove gli arrivano come notifica. */
-export async function preparaAmministratore(): Promise<void> {
-  if (!sync) return;
-  const a = await accesso();
-  if (!a.eAmministratore(sync.uid)) return;
-  utente = { uid: sync.uid, email: sync.email, nome: sync.account };
-  await registraToken();
+/** «Chiedi l'accesso» dalle impostazioni (se la richiesta automatica non era partita, per esempio senza rete). */
+export async function chiediDalleImpostazioni(): Promise<boolean> {
+  if (!sync) return false;
+  utente ??= { uid: sync.uid, email: sync.email, nome: sync.account };
+  const ok = await tentativo(sync.uid, 'accesso');
+  if (ok) void registraToken();
+  return ok;
 }
 
 // ───────── i pulsanti della schermata ─────────
 
 function spiega(r: EsitoAccesso): void {
-  if (r.ok || r.motivo === 'annullato') return;
+  // negato: lo dice la schermata stessa
+  if (r.ok || r.motivo === 'annullato' || r.motivo === 'negato') return;
   if (r.motivo === 'nessunAccount')
     avviso("Su questo dispositivo non c'è un account Google: aggiungilo nelle Impostazioni di Android");
   else if (r.motivo === 'nonDisponibile')
@@ -234,34 +379,55 @@ function spiega(r: EsitoAccesso): void {
 }
 
 export async function muroAccedi(): Promise<void> {
+  // il tentativo parte da solo (seguiAccessiGoogle)
   const r = await accediSoloAccount();
   spiega(r);
-  if (r.ok) await valuta();
+  if (!r.ok) return;
+  await Promise.race([tentativoInCorso, new Promise(ok => setTimeout(ok, 5000))]);
+  // prima di cambiare schermata, lo stato vero dal server: chi è già approvato entra subito, chi è già stato
+  // rifiutato vede subito il no (senza passare da «Richiesta inviata»)
+  try {
+    const [f, a] = await Promise.all([firebase(), accesso()]);
+    const u = await f.utenteSalvato();
+    if (u && !a.eAmministratore(u.uid)) {
+      statoAccesso = await a.leggiAccesso(u.uid);
+      a.ricordaStato(u.uid, statoAccesso);
+    }
+  } catch {
+    // senza rete: si decide con quello che si sa, e lo stato arriva appena torna la rete
+  }
+  await valuta();
 }
 
+/** La schermata «Chiedi l'accesso» (la richiesta automatica non era partita, per esempio senza rete). */
 export async function muroChiedi(): Promise<void> {
   if (!utente) return;
-  try {
-    const a = await accesso();
-    const telefono = modelloLeggibile(await infoDispositivo());
-    await a.chiediAccesso(utente.uid, pulitoPerRichiesta(utente.nome), utente.email, pulitoPerRichiesta(telefono));
-    statoAccesso = 'in_attesa';
-    a.ricordaStato(utente.uid, 'in_attesa');
+  if (await tentativo(utente.uid, 'accesso')) {
     await valuta();
     avviso('Richiesta inviata ✓ Valerio la riceve subito', 5000);
-  } catch (e) {
-    registraErrore("richiesta d'accesso", e);
-    avviso('Richiesta non inviata: sei connesso a internet?');
-  }
+  } else avviso('Richiesta non inviata: sei connesso a internet?');
 }
 
+/** «Chiedi di nuovo» per chi è stato rifiutato o non ha più l'accesso: Valerio lo vede e può cambiare idea. */
+export async function muroAncora(): Promise<void> {
+  if (!utente || Date.now() - ancoraAlle < UN_MINUTO) return;
+  if (!(await tentativo(utente.uid, 'ancora'))) {
+    avviso('Richiesta non inviata: sei connesso a internet?');
+    return;
+  }
+  ancoraAlle = Date.now();
+  mostra(esito);
+  // dopo un minuto si può chiedere ancora
+  setTimeout(() => {
+    if (esito !== 'aperto') mostra(esito);
+  }, UN_MINUTO + 100);
+  avviso('Richiesta inviata di nuovo ✓ Valerio la vede', 5000);
+}
+
+/** «Usa un altro account»: si esce da questo e si torna alla schermata di accesso. */
 export async function muroEsci(): Promise<void> {
-  seguito?.smetti();
-  seguito = null;
+  if (utente) await togliToken(utente.uid);
   if (sincronizzazioneAttiva()) await esciDallaSincronizzazione();
   await (await firebase()).esci();
-  utente = null;
-  statoAccesso = 'nessuno';
-  tokenRegistrato = '';
-  await valuta();
+  await dopoUscita();
 }

@@ -87,13 +87,17 @@ public class NativoPlugin extends Plugin {
         try { p.notifyListeners("sincronizza", o); } catch (Exception ignored) {}
     }
 
-    // accesso su approvazione: una richiesta nuova (per Valerio) o l'approvazione (per chi aspetta), con l'app aperta
-    // (ad app chiusa la notifica la mostra Android da solo, perché ha titolo e testo)
+    // accesso su approvazione, con l'app aperta: per Valerio richieste e tentativi (con titolo e testo da mostrare),
+    // per gli altri l'approvazione o l'accesso tolto (ad app chiusa la notifica la mostra Android da solo)
     static void accesso(java.util.Map<String, String> d) {
         NativoPlugin p = istanza;
         if (p == null) return;
         JSObject o = new JSObject();
         o.put("tipo", d.get("tipo"));
+        for (String k : new String[] { "titolo", "testo" }) {
+            String v = d.get(k);
+            if (v != null) o.put(k, v.length() > 300 ? v.substring(0, 300) : v);
+        }
         try { p.notifyListeners("accesso", o); } catch (Exception ignored) {}
     }
 

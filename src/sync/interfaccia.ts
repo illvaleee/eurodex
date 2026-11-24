@@ -154,6 +154,7 @@ export async function azioneAccedi(): Promise<void> {
           : `Accesso non riuscito: ${r.dettaglio ?? ''}`,
       );
     else if (r.motivo === 'rete') avviso('Accesso non riuscito: sei connesso a internet?');
+    else if (r.motivo === 'negato') avviso('Questo account non è approvato da Valerio');
     return;
   }
   if (foglioCon('.nvsheet') || foglioCon('.welcome')) chiudiFoglio();

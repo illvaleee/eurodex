@@ -3,20 +3,22 @@ import { $ } from '../core/dom';
 import { registraErrore } from '../core/errori';
 import { quando } from '../core/formato';
 import type { Decisione, Richiesta, StatoAccesso } from '../sync/accesso';
-import { dopoRichiesta, muroAcceso, muroCambiato } from '../sync/muro';
-import { pulitoPerRichiesta } from '../sync/muro-logica';
-import { infoDispositivo, modelloLeggibile, sincronizzazioneAttiva, sync } from '../sync/sincronizzazione';
+import type { Dispositivo } from '../sync/motore';
+import { chiediDalleImpostazioni, muroAcceso, muroCambiato, preparaNotifiche } from '../sync/muro';
+import { sincronizzazioneAttiva, sync } from '../sync/sincronizzazione';
 import { avviso } from '../ui/avvisi';
 import { dialogo } from '../ui/dialogo';
 import { apriFoglio, foglioCon } from '../ui/foglio';
 import { ICONA } from '../ui/icone';
 
 /**
- * Accesso su approvazione nelle impostazioni: lo stato del proprio account (con «Chiedi l'accesso») e, solo per
- * Valerio, la sezione per accettare o rifiutare le richieste e per accendere o spegnere il muro.
+ * Accesso su approvazione nelle impostazioni: lo stato del proprio account e, solo per Valerio, la sezione con tutti
+ * gli account che hanno fatto l'accesso (su quali telefoni, quando), per approvare, rifiutare o togliere l'accesso, e
+ * l'interruttore del muro.
  */
 
 const accesso = () => import('../sync/accesso');
+const motore = () => import('../sync/motore');
 
 function sezioneUtente(stato: StatoAccesso): TemplateResult {
   const box =
@@ -24,7 +26,7 @@ function sezioneUtente(stato: StatoAccesso): TemplateResult {
       ? html`<div class="bstat ok" role="status"><b>✓ Accesso approvato da Valerio</b></div>`
       : stato === 'in_attesa'
         ? html`<div class="bstat ok" role="status">
-            <b>⏳ Richiesta inviata</b><span>Valerio la vede e ti risponde.</span>
+            <b>⏳ In attesa dell'approvazione</b><span>Valerio ha ricevuto la tua richiesta.</span>
           </div>`
         : stato === 'rifiutato' || stato === 'revocato'
           ? html`<div class="bstat err" role="status"><b>Accesso non approvato da Valerio</b></div>`
@@ -36,7 +38,7 @@ function sezioneUtente(stato: StatoAccesso): TemplateResult {
         ${
           muroAcceso()
             ? "Eurodex è su invito: serve l'approvazione di Valerio."
-            : "Presto Eurodex sarà su invito: per usarlo servirà l'approvazione di Valerio, e puoi già chiederla."
+            : "Presto Eurodex sarà su invito: per usarlo servirà l'approvazione di Valerio."
         }
       </div>
       ${box}
@@ -51,7 +53,9 @@ function sezioneAmministratore(inAttesa: number | null): TemplateResult {
       </div>
       <div class="muted small">
         Muro <b>${muroAcceso() ? 'acceso' : 'spento'}</b>${
-          muroAcceso() ? ': solo chi approvi usa Eurodex.' : ': per ora Eurodex è aperto a tutti.'
+          muroAcceso()
+            ? ': solo chi approvi usa Eurodex.'
+            : ': per ora Eurodex è aperto a tutti, tranne chi hai escluso.'
         }${inAttesa ? html` <b>${inAttesa === 1 ? '1 richiesta' : `${inAttesa} richieste`} in attesa.</b>` : nothing}
       </div>
       <button class="btn sec2" data-act="accgestisci">Gestisci gli accessi</button>
@@ -69,6 +73,8 @@ export async function disegnaSezioneAccesso(): Promise<void> {
   const uid = sync.uid;
   const a = await accesso();
   if (a.eAmministratore(uid)) {
+    // appena entrato dalle impostazioni (anche su un telefono nuovo): da subito gli arrivano richieste e tentativi
+    void preparaNotifiche().catch(() => undefined);
     render(sezioneAmministratore(null), box);
     try {
       const n = (await a.richieste()).filter(r => r.stato === 'in_attesa' && r.uid !== uid).length;
@@ -88,35 +94,55 @@ export async function disegnaSezioneAccesso(): Promise<void> {
   }
 }
 
-/** «Chiedi l'accesso» dalle impostazioni (con il muro ancora spento). */
+/** «Chiedi l'accesso» dalle impostazioni, se la richiesta automatica non era partita (per esempio senza rete). */
 export async function azioneChiediAccesso(): Promise<void> {
-  if (!sync) return;
-  try {
-    const a = await accesso();
-    const telefono = modelloLeggibile(await infoDispositivo());
-    await a.chiediAccesso(sync.uid, pulitoPerRichiesta(sync.account), sync.email, pulitoPerRichiesta(telefono));
-    a.ricordaStato(sync.uid, 'in_attesa');
-    void dopoRichiesta();
+  if (await chiediDalleImpostazioni()) {
+    (await accesso()).ricordaStato(sync?.uid ?? '', 'in_attesa');
     avviso('Richiesta inviata ✓ Valerio la riceve subito', 5000);
-  } catch (e) {
-    registraErrore("richiesta d'accesso", e);
-    avviso('Richiesta non inviata: sei connesso a internet?');
-  }
+  } else avviso('Richiesta non inviata: sei connesso a internet?');
   await disegnaSezioneAccesso();
 }
 
 // ───────── la sezione di Valerio ─────────
 
 const nomeDi = (r: Richiesta) => r.nome || r.email || 'Senza nome';
+const ultimaVolta = (r: Richiesta) => (r.ultimoTentativo ?? r.richiesta)?.getTime() ?? 0;
+
+/** I telefoni su cui ogni account usa Eurodex (dalla sincronizzazione): si leggono una volta per apertura. */
+let telefoni = new Map<string, Dispositivo[] | 'errore'>();
+
+function righeTelefoni(uid: string): TemplateResult | typeof nothing {
+  const t = telefoni.get(uid);
+  if (!t) return nothing;
+  if (t === 'errore') return html`<span>Telefoni non disponibili</span>`;
+  if (!t.length) return html`<span>Non sincronizza su nessun telefono</span>`;
+  return html`<span
+    >${t.length === 1 ? 'Usa Eurodex su' : `Usa Eurodex su ${t.length} dispositivi`}:
+    ${t
+      .map(d =>
+        [d.nome || d.modello || 'Telefono', d.versione ?? '', d.ultimo ? `aperta ${quando(d.ultimo)}` : '']
+          .filter(Boolean)
+          .join(' · '),
+      )
+      .join('; ')}</span
+  >`;
+}
 
 function riga(r: Richiesta, pulsanti: TemplateResult): TemplateResult {
-  const dettagli = [r.nome ? r.email : '', r.dispositivo, r.richiesta ? `chiesto ${quando(r.richiesta.getTime())}` : '']
+  const fuori = r.stato === 'revocato' ? 'accesso tolto' : r.stato === 'rifiutato' ? 'rifiutato' : '';
+  const ultimo = ultimaVolta(r);
+  const dettagli = [
+    r.nome ? r.email : '',
+    fuori,
+    ultimo ? `ultimo accesso ${quando(ultimo)}${r.dispositivo ? ` da ${r.dispositivo}` : ''}` : r.dispositivo,
+    r.tentativi > 1 ? `${r.tentativi} accessi` : '',
+  ]
     .filter(Boolean)
     .join(' · ');
   return html`<div class="disp acc">
     <span class="dico" aria-hidden="true">${nomeDi(r).slice(0, 1).toUpperCase()}</span>
     <div class="grow">
-      <b>${nomeDi(r)}</b><span>${dettagli}</span>
+      <b>${nomeDi(r)}</b><span>${dettagli}</span>${righeTelefoni(r.uid)}
       ${r.nota ? html`<span class="accnota">${r.nota}</span>` : nothing}
       <div class="row gap accbtn">${pulsanti}</div>
     </div>
@@ -124,7 +150,7 @@ function riga(r: Richiesta, pulsanti: TemplateResult): TemplateResult {
 }
 
 function elenco(tutte: readonly Richiesta[], io: string): TemplateResult {
-  const l = tutte.filter(r => r.uid !== io);
+  const l = tutte.filter(r => r.uid !== io).sort((x, y) => ultimaVolta(y) - ultimaVolta(x));
   const attesa = l.filter(r => r.stato === 'in_attesa');
   const dentro = l.filter(r => r.stato === 'approvato');
   const fuori = l.filter(r => r.stato === 'rifiutato' || r.stato === 'revocato');
@@ -154,6 +180,25 @@ function elenco(tutte: readonly Richiesta[], io: string): TemplateResult {
   }`;
 }
 
+/** I telefoni degli account nuovi nell'elenco; quando arrivano, l'elenco si ridisegna. */
+async function caricaTelefoni(l: readonly Richiesta[], ridisegna: () => void): Promise<void> {
+  const nuovi = l.map(r => r.uid).filter(uid => !telefoni.has(uid));
+  if (!nuovi.length) return;
+  const m = await motore();
+  const mappa = telefoni;
+  await Promise.all(
+    nuovi.map(async uid => {
+      try {
+        mappa.set(uid, await m.dispositivi(uid));
+      } catch (e) {
+        registraErrore('telefoni di un account', e);
+        mappa.set(uid, 'errore');
+      }
+    }),
+  );
+  if (mappa === telefoni) ridisegna();
+}
+
 let smettiRichieste: (() => void) | null = null;
 
 /** La sezione di Valerio: interruttore del muro e richieste, che si aggiornano da sole mentre è aperta. */
@@ -168,8 +213,8 @@ export async function apriGestioneAccessi(): Promise<void> {
       ><span
         ><b>Solo chi approvi può usare Eurodex</b
         ><small
-          >Acceso: chi non è approvato vede solo la schermata per chiedere l'accesso, e non ha più sincronizzazione,
-          notifiche e aggiornamenti. Spento: tutto come prima.</small
+          >Acceso: chi non è approvato vede solo la schermata per accedere e chiedere l'accesso. Spento: Eurodex è
+          aperto a tutti, tranne chi hai rifiutato o a cui hai tolto l'accesso.</small
         ></span
       ><input type="checkbox" data-muro .checked=${muroAcceso()} /><i aria-hidden="true"></i
     ></label>
@@ -181,14 +226,19 @@ export async function apriGestioneAccessi(): Promise<void> {
   const box = $('#acclist');
   if (!box) return;
   // tutto quello che sta nel riquadro lo disegna lit (anche l'attesa), così l'elenco lo sostituisce
-  render(html`<div class="muted small">Carico le richieste…</div>`, box);
+  render(html`<div class="muted small">Carico gli accessi…</div>`, box);
+  telefoni = new Map();
   const smetti = a.seguiRichieste(
     l => {
-      if (box.isConnected) render(elenco(l, io), box);
-      else {
+      if (!box.isConnected) {
         smetti();
         smettiRichieste = null;
+        return;
       }
+      render(elenco(l, io), box);
+      void caricaTelefoni(l, () => {
+        if (box.isConnected) render(elenco(l, io), box);
+      }).catch(() => undefined);
     },
     e => {
       registraErrore('elenco delle richieste di accesso', e);
@@ -202,13 +252,14 @@ export async function apriGestioneAccessi(): Promise<void> {
 const DOMANDE: Partial<Record<Decisione, { titolo: string; testo: string; ok: string }>> = {
   rifiutato: {
     titolo: 'Rifiutare la richiesta?',
-    testo: 'Non potrà usare Eurodex finché il muro è acceso. Puoi sempre ripensarci e approvarlo dopo.',
+    testo:
+      'Non potrà usare Eurodex, nemmeno col muro spento. Se ci riprova ti arriva una notifica, e puoi sempre approvarlo dopo.',
     ok: 'Rifiuta',
   },
   revocato: {
     titolo: "Togliere l'accesso?",
     testo:
-      "Da subito non avrà più sincronizzazione e notifiche, e col muro acceso vedrà solo la schermata per chiedere l'accesso. La sua collezione resta salvata.",
+      'Da subito non potrà più usare Eurodex, nemmeno col muro spento, e gli arriva una notifica. Quello che ha segnato resta salvato sul suo telefono. Puoi riapprovarlo quando vuoi.',
     ok: "Togli l'accesso",
   },
 };
@@ -225,7 +276,7 @@ export async function decidiAccesso(uid: string | undefined, stato: Decisione): 
         ? 'Approvato ✓ Gli arriva una notifica'
         : stato === 'rifiutato'
           ? 'Richiesta rifiutata'
-          : 'Accesso tolto',
+          : 'Accesso tolto ✓ Gli arriva una notifica',
     );
   } catch (e) {
     registraErrore("decisione sull'accesso", e);
@@ -246,7 +297,7 @@ export async function cambiaMuro(el: HTMLInputElement): Promise<void> {
     }
     const ok = await dialogo({
       titolo: 'Accendere il muro?',
-      testo: `Da subito chi non hai approvato vedrà solo la schermata per chiedere l'accesso, e non avrà più sincronizzazione e notifiche. Approvati adesso: ${approvati}. Puoi spegnerlo quando vuoi.`,
+      testo: `Da subito chi non hai approvato vedrà solo la schermata per accedere e chiedere l'accesso. Approvati adesso: ${approvati}. Puoi spegnerlo quando vuoi.`,
       ok: 'Accendi',
       pericolo: true,
     });
@@ -259,7 +310,9 @@ export async function cambiaMuro(el: HTMLInputElement): Promise<void> {
     await a.impostaObbligo(acceso);
     muroCambiato(acceso);
     avviso(
-      acceso ? 'Muro acceso: ora solo chi hai approvato usa Eurodex' : 'Muro spento: Eurodex è di nuovo aperto a tutti',
+      acceso
+        ? 'Muro acceso: ora solo chi hai approvato usa Eurodex'
+        : 'Muro spento: Eurodex è di nuovo aperto a tutti, tranne chi hai escluso',
     );
   } catch (e) {
     el.checked = !acceso;

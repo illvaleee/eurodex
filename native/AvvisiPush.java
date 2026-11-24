@@ -28,6 +28,11 @@ public class AvvisiPush extends FirebaseMessagingService {
                 SharedPreferences sp = c.getSharedPreferences("aggiornamenti", Context.MODE_PRIVATE);
                 String cid = sp.getString("sync_cid", ""), mio = sp.getString("sync_did", "");
                 if (cid.isEmpty() || !cid.equals(d.get("cid")) || mio.equals(d.get("did"))) return;
+                // la stessa notizia può arrivare due volte, dall'argomento (per le versioni vecchie) e dal token di
+                // questo telefono (§4.5): la seconda si ignora
+                String chiave = d.get("did") + "|" + d.get("ts") + "|" + d.get("testo");
+                if (chiave.equals(sp.getString("sync_ultimo", ""))) return;
+                sp.edit().putString("sync_ultimo", chiave).apply();
                 NativoPlugin.evento(d);   // se l'app è aperta si aggiorna subito
                 if (!sp.getBoolean("attivi", true)) return;   // notifiche spente nelle impostazioni dell'app
                 // app aperta sullo schermo: l'avviso lo mostra già l'app, la notifica sarebbe un doppione
@@ -40,9 +45,11 @@ public class AvvisiPush extends FirebaseMessagingService {
             } catch (Exception ignored) {}
             return;
         }
-        // accesso su approvazione (richiesta nuova per Valerio, approvazione per chi aspetta): con l'app aperta lo dice
-        // l'app; ad app chiusa questi messaggi non passano da qui, la notifica (titolo e testo) la mostra Android
-        if ("accesso".equals(d.get("tipo")) || "approvato".equals(d.get("tipo"))) {
+        // accesso su approvazione (per Valerio richieste e tentativi; per gli altri l'approvazione o l'accesso tolto):
+        // con l'app aperta lo dice l'app; ad app chiusa questi messaggi non passano da qui, la notifica (titolo e
+        // testo) la mostra Android
+        String tipo = d.get("tipo");
+        if ("accesso".equals(tipo) || "approvato".equals(tipo) || "tolto".equals(tipo)) {
             NativoPlugin.accesso(d);
             return;
         }

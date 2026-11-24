@@ -32,7 +32,10 @@ export interface NativoPlugin {
   tokenNotifiche(): Promise<{ token?: string }>;
   addListener(evento: 'download', f: (e: { percento: number }) => void): Promise<PluginListenerHandle>;
   addListener(evento: 'azione', f: (e: { azione?: string }) => void): Promise<PluginListenerHandle>;
-  addListener(evento: 'accesso', f: (e: { tipo?: string }) => void): Promise<PluginListenerHandle>;
+  addListener(
+    evento: 'accesso',
+    f: (e: { tipo?: string; titolo?: string; testo?: string }) => void,
+  ): Promise<PluginListenerHandle>;
   addListener(
     evento: 'sincronizza',
     f: (e: { did?: string; nome?: string; testo?: string }) => void,

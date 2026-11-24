@@ -1,5 +1,7 @@
 import {
+  addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -14,9 +16,11 @@ import {
 import { firebase } from './firebase';
 
 /**
- * Accesso solo su approvazione (docs/progetto-accesso-su-approvazione.md): la richiesta di chi entra, lo stato
- * deciso da Valerio, la sua sezione per decidere, i dispositivi per le notifiche. Qui c'è solo il collegamento ai
- * dati: il muro vero sono le regole di Firestore (firebase/firestore.rules), che dall'app non si possono aggirare.
+ * Accesso solo su approvazione (docs/progetto-accesso-su-approvazione.md): ogni accesso con Google è un tentativo
+ * (la funzione tentativoDiAccesso crea la richiesta dell'account nuovo, o avvisa Valerio che uno già deciso è
+ * rientrato), lo stato deciso da Valerio, la sua sezione per decidere, i dispositivi per le notifiche. Qui c'è solo il
+ * collegamento ai dati: il muro vero sono le regole di Firestore (firebase/firestore.rules), che dall'app non si
+ * possono aggirare.
  */
 
 export type StatoAccesso = 'nessuno' | 'in_attesa' | 'approvato' | 'rifiutato' | 'revocato';
@@ -32,11 +36,18 @@ export interface Richiesta {
   stato: StatoAccesso;
   nome: string;
   email: string;
+  /** il telefono dell'ultimo tentativo */
   dispositivo: string;
   richiesta: Date | null;
   decisione: Date | null;
   nota: string;
+  /** l'ultimo accesso con Google (tentativo), e quanti ne ha fatti */
+  ultimoTentativo: Date | null;
+  tentativi: number;
 }
+
+/** Perché parte un tentativo: un accesso con Google, «Chiedi di nuovo», il primo avvio con questa versione. */
+export type MotivoTentativo = 'accesso' | 'ancora' | 'primo';
 
 export const statoValido = (s: unknown): StatoAccesso =>
   STATI.includes(s as Decisione) ? (s as Decisione) : 'nessuno';
@@ -62,6 +73,8 @@ export function richiestaDa(uid: string, d: Record<string, unknown>): Richiesta 
     richiesta: data(d.richiesta),
     decisione: data(d.decisione),
     nota: testo(d.nota, 200),
+    ultimoTentativo: data(d.ultimoTentativo),
+    tentativi: typeof d.tentativi === 'number' && d.tentativi > 0 ? Math.floor(d.tentativi) : 1,
   };
 }
 
@@ -70,23 +83,31 @@ export async function leggiAccesso(uid: string): Promise<StatoAccesso> {
   return s.exists() ? statoValido(s.data().stato) : 'nessuno';
 }
 
-/** Lo stato che cambia mentre l'app è aperta (Valerio approva: la schermata di attesa si apre da sola). */
-export function seguiAccesso(uid: string, quandoCambia: (s: StatoAccesso) => void): Unsubscribe {
+/**
+ * Lo stato che cambia mentre l'app è aperta (Valerio approva o toglie l'accesso: la schermata cambia da sola).
+ * `dalServer`: falso quando la risposta viene solo dalla memoria del telefono (senza rete).
+ */
+export function seguiAccesso(
+  uid: string,
+  quandoCambia: (s: StatoAccesso, dalServer: boolean) => void,
+  quandoSiFerma: (e: unknown) => void,
+): Unsubscribe {
   return onSnapshot(
     doc(firebase().db, 'accessi', uid),
-    s => quandoCambia(s.exists() ? statoValido(s.data().stato) : 'nessuno'),
-    () => quandoCambia('nessuno'),
+    s => quandoCambia(s.exists() ? statoValido(s.data().stato) : 'nessuno', !s.metadata.fromCache),
+    quandoSiFerma,
   );
 }
 
-/** La richiesta di accesso: una sola per account, sempre "in attesa" (le regole rifiutano tutto il resto). */
-export async function chiediAccesso(uid: string, nome: string, email: string, dispositivo: string): Promise<void> {
-  await setDoc(doc(firebase().db, 'accessi', uid), {
-    stato: 'in_attesa',
-    nome: nome.slice(0, 80),
-    email,
+/**
+ * Un tentativo di accesso: lo legge la funzione tentativoDiAccesso, che crea la richiesta dell'account nuovo o avvisa
+ * Valerio (approvato o rifiutato in automatico). Nome ed email la funzione li prende dall'account, qui solo il telefono.
+ */
+export async function registraTentativo(uid: string, dispositivo: string, motivo: MotivoTentativo): Promise<void> {
+  await addDoc(collection(firebase().db, 'accessi', uid, 'tentativi'), {
+    quando: serverTimestamp(),
     dispositivo: dispositivo.slice(0, 80),
-    richiesta: serverTimestamp(),
+    motivo,
   });
 }
 
@@ -117,7 +138,7 @@ export async function decidi(uid: string, stato: Decisione, nota?: string): Prom
   await updateDoc(doc(firebase().db, 'accessi', uid), campi);
 }
 
-/** Il token delle notifiche di questo dispositivo, per ricevere avvisi e aggiornamenti solo se approvato. */
+/** Il token delle notifiche di questo dispositivo: avvisi dell'accesso (approvato, tolto) e della sincronizzazione. */
 export async function registraDispositivo(uid: string, did: string, token: string, nome: string): Promise<boolean> {
   if (!/^[A-Za-z0-9_-]{8,64}$/.test(did) || token.length < 20 || token.length > 4096) return false;
   await setDoc(doc(firebase().db, 'accessi', uid, 'dispositivi', did), {
@@ -126,6 +147,12 @@ export async function registraDispositivo(uid: string, did: string, token: strin
     aggiornato: serverTimestamp(),
   });
   return true;
+}
+
+/** Uscendo dall'account: questo telefono non riceve più gli avvisi di quell'account. */
+export async function togliDispositivo(uid: string, did: string): Promise<void> {
+  if (!/^[A-Za-z0-9_-]{8,64}$/.test(did)) return;
+  await deleteDoc(doc(firebase().db, 'accessi', uid, 'dispositivi', did));
 }
 
 // L'ultimo stato conosciuto, per aprire l'app anche senza rete: è solo comodità, perché la parte online la
@@ -138,6 +165,24 @@ export function ultimoStato(uid: string): StatoAccesso {
     return j?.uid === uid ? statoValido(j.stato) : 'nessuno';
   } catch {
     return 'nessuno';
+  }
+}
+
+/** L'account con cui si è entrati l'ultima volta su questo telefono (senza caricare Firebase), se c'è. */
+export function ultimoAccount(): string | null {
+  try {
+    const j = JSON.parse(localStorage.getItem(CHIAVE) ?? 'null') as { uid?: unknown } | null;
+    return typeof j?.uid === 'string' && j.uid ? j.uid : null;
+  } catch {
+    return null;
+  }
+}
+
+export function dimenticaStato(): void {
+  try {
+    localStorage.removeItem(CHIAVE);
+  } catch {
+    // niente da dimenticare
   }
 }
 

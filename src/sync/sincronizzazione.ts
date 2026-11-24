@@ -530,7 +530,8 @@ async function ascolta(): Promise<void> {
 }
 
 export type EsitoAccesso =
-  { ok: true } | { ok: false; motivo: 'annullato' | 'nessunAccount' | 'nonDisponibile' | 'rete'; dettaglio?: string };
+  | { ok: true }
+  | { ok: false; motivo: 'annullato' | 'nessunAccount' | 'nonDisponibile' | 'rete' | 'negato'; dettaglio?: string };
 
 /** Solo per le prove automatiche nel browser: un gettone finto per l'emulatore di Firebase. */
 declare global {
@@ -558,6 +559,19 @@ function esitoCredenziale(e: unknown): EsitoAccesso {
  * Solo l'accesso all'account Google, senza sincronizzare niente: serve con il muro acceso per chiedere l'accesso a
  * Eurodex (la sincronizzazione parte dopo, quando Valerio approva).
  */
+// Chi vuole sapere degli accessi con Google fatti dalla persona (non quelli rifatti da soli) e delle uscite: il muro
+// dell'accesso su approvazione (ogni accesso è un tentativo, che Valerio vede; uscendo si torna alla schermata
+// di accesso). Così questo modulo non dipende dal muro.
+interface AscoltoAccessi {
+  accesso: (uid: string) => void;
+  primaDiUscire: (uid: string) => Promise<void>;
+  uscito: () => void;
+}
+let ascoltoAccessi: AscoltoAccessi | null = null;
+export function seguiAccessiGoogle(a: AscoltoAccessi): void {
+  ascoltoAccessi = a;
+}
+
 export async function accediSoloAccount(): Promise<EsitoAccesso> {
   let idToken: string;
   try {
@@ -566,7 +580,8 @@ export async function accediSoloAccount(): Promise<EsitoAccesso> {
     return esitoCredenziale(e);
   }
   try {
-    await (await firebase()).accediConToken(idToken);
+    const user = await (await firebase()).accediConToken(idToken);
+    ascoltoAccessi?.accesso(user.uid);
     return { ok: true };
   } catch (e) {
     return { ok: false, motivo: 'rete', dettaglio: messaggio(e) };
@@ -586,6 +601,9 @@ export async function accedi(silenzioso = false): Promise<EsitoAccesso> {
   }
   try {
     const user = await (await firebase()).accediConToken(idToken);
+    // un accesso fatto dalla persona (non quello che si rifà da solo): è un tentativo, anche se poi la
+    // sincronizzazione non parte (per esempio un account che Valerio ha rifiutato)
+    if (!silenzioso) ascoltoAccessi?.accesso(user.uid);
     const m = await motore();
     // stesso account di adesso, oppure lo stesso da cui si era usciti con "Esci" su questo dispositivo
     const uscito = sync ? null : leggiUscito();
@@ -643,6 +661,9 @@ export async function accedi(silenzioso = false): Promise<EsitoAccesso> {
       sostituisciNote(copia.note);
       salva();
       salvaStato();
+      // un account che Valerio non ha approvato (o ha escluso): lo dice il muro, non è un problema di rete
+      if ((e as { code?: unknown } | null)?.code === 'permission-denied')
+        return { ok: false, motivo: 'negato', dettaglio: messaggio(e) };
       registraErrore('accesso con Google', e);
       return { ok: false, motivo: 'rete', dettaglio: messaggio(e) };
     }
@@ -670,6 +691,8 @@ export async function esci(): Promise<void> {
   } catch {
     // senza rete il dispositivo resta nell'elenco finché non si riaccede
   }
+  // finché c'è ancora l'accesso: questo telefono smette di ricevere gli avvisi di quell'account
+  await ascoltoAccessi?.primaDiUscire(s.uid).catch(() => undefined);
   await (await firebase()).esci();
   // si tiene da parte quello che si sapeva: rientrando con lo stesso account, le monete tolte nel frattempo da un
   // altro dispositivo restano tolte (invece di ricomparire come aggiunte di questo)
@@ -687,6 +710,7 @@ export async function esci(): Promise<void> {
   timerAscolto = undefined;
   salvaStato();
   await iscriviNotifiche();
+  ascoltoAccessi?.uscito();
 }
 
 export async function rinomina(nome: string): Promise<void> {

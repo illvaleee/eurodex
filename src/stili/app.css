@@ -3119,6 +3119,10 @@ body.con-muro {
 .disp.acc {
   align-items: flex-start;
 }
+/* email e ultimo accesso, poi i telefoni: ognuno sulla sua riga */
+.disp.acc .grow > span {
+  display: block;
+}
 .disp.acc .dico {
   font-size: 15px;
   font-weight: 700;

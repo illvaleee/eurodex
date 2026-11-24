@@ -2,11 +2,11 @@
   {
     "id": 21,
     "titolo": "Eurodex su invito",
-    "data": "2026-11-21",
-    "avviso": "Eurodex diventa su invito: puoi già chiedere l'accesso a Valerio dalle impostazioni",
+    "data": "2026-11-24",
+    "avviso": "Eurodex diventa su invito: chi accede con Google arriva a Valerio, che approva il suo account",
     "nuovo": [
-      "Impostazioni → Accesso: chiedi l'accesso a Valerio. Quando lui accenderà l'accesso su invito, Eurodex con sincronizzazione e notifiche lo userà solo chi ha approvato",
-      "Chi non è approvato vede una schermata per accedere con Google e chiedere l'accesso; appena Valerio approva, la schermata si apre da sola e arriva una notifica"
+      "Accedendo con Google il tuo account arriva a Valerio, che lo approva: l'approvazione resta anche se reinstalli l'app o cambi telefono",
+      "Quando Valerio accenderà l'accesso su invito, chi non è approvato vedrà solo la schermata per accedere; appena approvato si apre da sola e arriva una notifica"
     ]
   },
   {

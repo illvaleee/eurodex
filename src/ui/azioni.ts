@@ -37,7 +37,7 @@ import { apriAggiornamento, controllaAggiornamento, installaAggiornamento } from
 import { Nativo, annullato, messaggio, nativo } from '../nativo/plugin';
 import { azioneAccedi, azioneEsci, azioneRinomina, azioneSincronizzaOra } from '../sync/interfaccia';
 import { annunciaOra, sincronizzazioneAttiva } from '../sync/sincronizzazione';
-import { muroAccedi, muroAperto, muroChiedi, muroEsci } from '../sync/muro';
+import { muroAccedi, muroAncora, muroAperto, muroChiedi, muroEsci } from '../sync/muro';
 import { apriGestioneAccessi, azioneChiediAccesso, cambiaMuro, decidiAccesso } from '../viste/accesso';
 import { apriImpostazioni } from '../viste/impostazioni';
 import { apriNovita, avvisiAggiornamenti } from '../viste/finestre';
@@ -514,6 +514,9 @@ async function azione(nome: string, d: Dati): Promise<void> {
       break;
     case 'murochiedi':
       await inCorso('[data-act="murochiedi"]', 'Invio…', () => muroChiedi());
+      break;
+    case 'muroancora':
+      await inCorso('[data-act="muroancora"]', 'Invio…', () => muroAncora());
       break;
     case 'muroesci':
       await muroEsci();

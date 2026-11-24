@@ -5,20 +5,28 @@ import type { StatoAccesso } from './accesso';
  * sono le regole di Firestore: qui si decide soltanto cosa mostrare, e un'app modificata non ottiene niente di più.
  */
 
-export type EsitoMuro = 'aperto' | 'accedi' | 'chiedi' | 'attesa' | 'fuori';
+export type EsitoMuro = 'aperto' | 'accedi' | 'chiedi' | 'attesa' | 'fuori' | 'tolto';
 
-/** Cosa vede chi apre l'app: tutto (aperto), oppure la schermata per accedere, chiedere, aspettare o il no. */
+/**
+ * Cosa vede chi apre l'app (scelte di Valerio del 21/11):
+ * - muro spento: tutti dentro, tranne gli account rifiutati (fuori) o a cui ha tolto l'accesso (tolto);
+ * - muro acceso: dentro solo gli approvati e Valerio; gli altri vedono la schermata per accedere, quella di
+ *   attesa o il no. `inviato`: il tentativo di questo account è appena partito, quindi la richiesta sta arrivando.
+ */
 export function decidiMuro(o: {
   obbligo: boolean;
   uid: string | null;
   admin: boolean;
   stato: StatoAccesso;
+  inviato?: boolean;
 }): EsitoMuro {
-  if (!o.obbligo || o.admin) return 'aperto';
+  if (o.admin) return 'aperto';
+  const no: EsitoMuro | null = o.stato === 'revocato' ? 'tolto' : o.stato === 'rifiutato' ? 'fuori' : null;
+  if (!o.obbligo) return o.uid && no ? no : 'aperto';
   if (!o.uid) return 'accedi';
   if (o.stato === 'approvato') return 'aperto';
-  if (o.stato === 'in_attesa') return 'attesa';
-  if (o.stato === 'rifiutato' || o.stato === 'revocato') return 'fuori';
+  if (no) return no;
+  if (o.stato === 'in_attesa' || o.inviato) return 'attesa';
   return 'chiedi';
 }
 
@@ -45,7 +53,7 @@ export function indirizzoConfig(ricerca: string, inApp: boolean): string {
   return `https://firestore.googleapis.com/v1/${percorso}?key=${CHIAVE_PUBBLICA}`;
 }
 
-/** Nome e telefono per la richiesta: le regole rifiutano @ e caratteri di controllo o di direzione. */
+/** Il telefono nel tentativo: le regole rifiutano @ e caratteri di controllo o di direzione. */
 export const pulitoPerRichiesta = (x: string): string =>
   x
     .replace(/[@\p{Cc}\p{Cf}]/gu, '')

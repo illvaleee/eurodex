@@ -4,24 +4,36 @@ import { decidiMuro, indirizzoConfig, obbligoDaDocumento, pulitoPerRichiesta } f
 describe('muro: cosa vede chi apre l’app', () => {
   const base = { obbligo: true, uid: 'abc', admin: false, stato: 'nessuno' as const };
 
-  it('muro spento: tutto aperto, per chiunque (anche senza accesso)', () => {
-    for (const stato of ['nessuno', 'in_attesa', 'approvato', 'rifiutato', 'revocato'] as const)
+  it('muro spento: tutti dentro (anche senza accesso), tranne chi Valerio ha rifiutato o tolto', () => {
+    for (const stato of ['nessuno', 'in_attesa', 'approvato'] as const)
       expect(decidiMuro({ ...base, obbligo: false, stato })).toBe('aperto');
     expect(decidiMuro({ ...base, obbligo: false, uid: null })).toBe('aperto');
+    expect(decidiMuro({ ...base, obbligo: false, stato: 'rifiutato' })).toBe('fuori');
+    expect(decidiMuro({ ...base, obbligo: false, stato: 'revocato' })).toBe('tolto');
+    // uscito dall'account: con il muro spento si usa l'app senza account, come prima
+    expect(decidiMuro({ ...base, obbligo: false, uid: null, stato: 'revocato' })).toBe('aperto');
   });
 
-  it('muro acceso: senza accesso si accede, poi si chiede, si aspetta, si entra o si resta fuori', () => {
+  it('muro acceso: senza accesso si accede, poi si aspetta, si entra o si resta fuori', () => {
     expect(decidiMuro({ ...base, uid: null })).toBe('accedi');
+    expect(decidiMuro({ ...base, uid: null, stato: 'approvato' })).toBe('accedi');
     expect(decidiMuro(base)).toBe('chiedi');
+    // il tentativo è partito: la richiesta sta arrivando, si aspetta (niente «Chiedi l'accesso» per un attimo)
+    expect(decidiMuro({ ...base, inviato: true })).toBe('attesa');
     expect(decidiMuro({ ...base, stato: 'in_attesa' })).toBe('attesa');
     expect(decidiMuro({ ...base, stato: 'approvato' })).toBe('aperto');
+    expect(decidiMuro({ ...base, stato: 'approvato', inviato: true })).toBe('aperto');
     expect(decidiMuro({ ...base, stato: 'rifiutato' })).toBe('fuori');
-    expect(decidiMuro({ ...base, stato: 'revocato' })).toBe('fuori');
+    expect(decidiMuro({ ...base, stato: 'revocato' })).toBe('tolto');
+    // chi è fuori e chiede di nuovo resta fuori finché Valerio non decide
+    expect(decidiMuro({ ...base, stato: 'rifiutato', inviato: true })).toBe('fuori');
   });
 
   it('Valerio entra sempre', () => {
-    expect(decidiMuro({ ...base, admin: true })).toBe('aperto');
-    expect(decidiMuro({ ...base, admin: true, stato: 'revocato' })).toBe('aperto');
+    for (const obbligo of [true, false]) {
+      expect(decidiMuro({ ...base, obbligo, admin: true })).toBe('aperto');
+      expect(decidiMuro({ ...base, obbligo, admin: true, stato: 'revocato' })).toBe('aperto');
+    }
   });
 });
 
