@@ -30,26 +30,92 @@ test('token: solo quelli validi, senza doppioni', () => {
   assert.deepEqual(t, [buono]);
 });
 
-test("richiesta di accesso: prima l'email vera, poi il nome, senza caratteri di controllo o di direzione", () => {
-  const m = L.messaggioRichiesta('uid1', { nome: 'Mario', email: 'mario@example.com' });
-  assert.equal(m.notification.body, 'mario@example.com · Mario');
-  assert.deepEqual(m.data, { tipo: 'accesso', uid: 'uid1', eurodex_azione: 'accessi' });
-  const finto = L.messaggioRichiesta('u', { nome: 'Mamma\u202e (x)\n', email: 'sconosciuto@example.com' });
+test("richiesta di accesso: prima l'email vera, poi nome e telefono, senza caratteri di controllo o di direzione", () => {
+  const m = L.messaggioRichiesta('uid1', { nome: 'Mario', email: 'mario@example.com', dispositivo: 'Oppo Find X5' });
+  assert.equal(m.notification.title, 'Richiesta di accesso a Eurodex');
+  assert.equal(m.notification.body, 'mario@example.com · Mario · Oppo Find X5');
+  assert.deepEqual(m.data, {
+    tipo: 'accesso',
+    uid: 'uid1',
+    eurodex_azione: 'accessi',
+    titolo: 'Richiesta di accesso a Eurodex',
+    testo: 'mario@example.com · Mario · Oppo Find X5',
+  });
+  const finto = L.messaggioRichiesta('u', { nome: 'Mamma‮ (x)\n', email: 'sconosciuto@example.com' });
   assert.equal(finto.notification.body, 'sconosciuto@example.com · Mamma (x)');
   assert.equal(L.messaggioRichiesta('u', { nome: 'n'.repeat(300), email: '' }).notification.body.length, 80);
   assert.equal(L.messaggioRichiesta('u', null).notification.body, 'Qualcuno');
+  // i dati di una notifica sono tutti testo (Cloud Messaging rifiuta il resto)
+  for (const v of Object.values(m.data)) assert.equal(typeof v, 'string');
+});
+
+test('tentativo di un account nuovo: richiesta in attesa (la notifica la manda avvisaValerio)', () => {
+  const e = L.dopoTentativo('u1', null, { nome: 'Lucia', email: 'lucia@example.com', dispositivo: 'Pixel 7' }, 1000);
+  assert.equal(e.nuovo, true);
+  assert.equal(e.notifica, null);
+  assert.deepEqual(e.campi, {
+    stato: 'in_attesa',
+    nome: 'Lucia',
+    email: 'lucia@example.com',
+    dispositivo: 'Pixel 7',
+    tentativi: 1,
+  });
+});
+
+test('tentativo di un account già deciso: la decisione resta e Valerio lo sa', () => {
+  const ora = 10 * L.UN_MINUTO;
+  const chi = { nome: 'Mario', email: 'mario@example.com', dispositivo: 'Oppo' };
+  const approvato = L.dopoTentativo('u1', { stato: 'approvato', tentativi: 2 }, chi, ora);
+  assert.equal(approvato.nuovo, false);
+  assert.equal(approvato.campi.stato, undefined, 'lo stato non si tocca');
+  assert.equal(approvato.campi.tentativi, 3);
+  assert.equal(approvato.notifica.notification.title, 'Accesso approvato in automatico');
+  assert.equal(approvato.notifica.notification.body, 'mario@example.com · Mario · Oppo');
+  assert.equal(approvato.notifica.data.eurodex_azione, 'accessi');
+  for (const s of ['rifiutato', 'revocato']) {
+    const e = L.dopoTentativo('u1', { stato: s }, chi, ora);
+    assert.equal(e.campi.stato, undefined);
+    assert.equal(e.notifica.notification.title, 'Accesso rifiutato in automatico');
+  }
+  const ancora = L.dopoTentativo('u1', { stato: 'rifiutato' }, { ...chi, motivo: 'ancora' }, ora);
+  assert.equal(ancora.notifica.notification.body, 'mario@example.com · Mario · Oppo · ha chiesto di nuovo');
+  const attesa = L.dopoTentativo('u1', { stato: 'in_attesa' }, chi, ora);
+  assert.equal(attesa.notifica.notification.title, 'Richiesta di accesso a Eurodex');
+  assert.equal(attesa.notifica.notification.body, 'mario@example.com · Mario · Oppo · ancora in attesa');
+  // uno stato sconosciuto non diventa mai "approvato"
+  const boh = L.dopoTentativo('u1', { stato: 'boh' }, chi, ora);
+  assert.equal(boh.notifica.notification.title, 'Richiesta di accesso a Eurodex');
+});
+
+test('tentativi di fila: al massimo una notifica al minuto per account', () => {
+  const chi = { email: 'mario@example.com' };
+  const t0 = 100 * L.UN_MINUTO;
+  const appena = L.dopoTentativo('u1', { stato: 'approvato', avvisato: t0 - 30 * 1000 }, chi, t0);
+  assert.equal(appena.notifica, null);
+  assert.equal(appena.campi.tentativi, 2, 'il tentativo si conta lo stesso');
+  // Timestamp di Firestore (toMillis), Date e numeri valgono uguale
+  const ts = { toMillis: () => t0 - 1000 };
+  assert.equal(L.dopoTentativo('u1', { stato: 'approvato', avvisato: ts }, chi, t0).notifica, null);
+  assert.equal(L.dopoTentativo('u1', { stato: 'approvato', avvisato: new Date(t0 - 1000) }, chi, t0).notifica, null);
+  assert.ok(L.dopoTentativo('u1', { stato: 'approvato', avvisato: t0 - L.UN_MINUTO }, chi, t0).notifica);
+  assert.ok(L.dopoTentativo('u1', { stato: 'approvato' }, chi, t0).notifica);
+});
+
+test("notifiche per chi è approvato e per chi perde l'accesso", () => {
+  assert.deepEqual(L.messaggioApprovato().data, { tipo: 'approvato', eurodex_azione: 'accesso' });
+  const t = L.messaggioTolto();
+  assert.equal(t.notification.body, 'Valerio ha tolto il tuo accesso a Eurodex');
+  assert.deepEqual(t.data, { tipo: 'tolto', eurodex_azione: 'accesso' });
 });
 
 test('cambio di stato: cosa fare', () => {
   assert.deepEqual(L.azioniCambioStato({ stato: 'approvato' }, { stato: 'revocato' }), [
+    'avvisa_tolto',
     'chiudi_sessioni',
-    'togli_dispositivi',
   ]);
-  assert.deepEqual(L.azioniCambioStato({ stato: 'in_attesa' }, { stato: 'rifiutato' }), [
-    'chiudi_sessioni',
-    'togli_dispositivi',
-  ]);
+  assert.deepEqual(L.azioniCambioStato({ stato: 'in_attesa' }, { stato: 'rifiutato' }), ['chiudi_sessioni']);
   assert.deepEqual(L.azioniCambioStato({ stato: 'in_attesa' }, { stato: 'approvato' }), ['avvisa_approvato']);
+  assert.deepEqual(L.azioniCambioStato({ stato: 'rifiutato' }, { stato: 'approvato' }), ['avvisa_approvato']);
   assert.deepEqual(L.azioniCambioStato({ stato: 'approvato' }, { stato: 'approvato', nota: 'x' }), []);
   assert.deepEqual(L.azioniCambioStato({ stato: 'approvato' }, { stato: 'boh' }), []);
   assert.deepEqual(L.azioniCambioStato(undefined, { stato: 'approvato' }), ['avvisa_approvato']);

@@ -33,28 +33,99 @@ function pulito(x, max) {
     .slice(0, max);
 }
 
+/** Data di Firestore (Timestamp), Date o numero → millisecondi (0 se non si legge). */
+function millis(x) {
+  if (!x) return 0;
+  if (typeof x === 'number') return x;
+  if (typeof x.toMillis === 'function') return x.toMillis();
+  if (x instanceof Date) return x.getTime();
+  return 0;
+}
+
+const UN_MINUTO = 60 * 1000;
+const ANDROID = { priority: 'high', ttl: 7 * 24 * 3600 * 1000 };
+
 /**
- * La notifica per Valerio quando arriva una richiesta di accesso. Prima l'email, che è quella vera dell'account
- * (dal gettone): il nome è solo un aiuto e chiunque può sceglierselo (revisione di Claude 3 su #8).
+ * Chi ha fatto il tentativo, per le notifiche di Valerio: prima l'email, che è quella vera dell'account (la prende
+ * la funzione da Authentication), poi nome e telefono, che sono solo un aiuto (revisione di Claude 3 su #8).
  */
-function messaggioRichiesta(uid, r) {
-  const nome = pulito(r && r.nome, 80);
-  const email = pulito(r && r.email, 120);
-  const corpo = [email, nome].filter(Boolean).join(' · ') || 'Qualcuno';
+function chi(t) {
+  const parti = [pulito(t && t.email, 120), pulito(t && t.nome, 80), pulito(t && t.dispositivo, 80)];
+  return parti.filter(Boolean).join(' · ') || 'Qualcuno';
+}
+
+/** Una notifica per Valerio: toccandola l'app apre la sua sezione; titolo e testo li mostra l'app se è aperta. */
+function notificaPerValerio(uid, titolo, corpo) {
   return {
-    notification: { title: 'Richiesta di accesso a Eurodex', body: corpo },
-    // eurodex_azione: toccando la notifica l'app apre la sezione di Valerio con le richieste
-    data: { tipo: 'accesso', uid: String(uid), eurodex_azione: 'accessi' },
-    android: { priority: 'high', ttl: 7 * 24 * 3600 * 1000 },
+    notification: { title: titolo, body: corpo },
+    data: { tipo: 'accesso', uid: String(uid), eurodex_azione: 'accessi', titolo, testo: corpo },
+    android: ANDROID,
   };
 }
 
-/** Cosa fare quando Valerio cambia lo stato di un account. */
+/** La notifica per Valerio quando un account nuovo chiede l'accesso (avvisaValerio, alla creazione). */
+function messaggioRichiesta(uid, r) {
+  return notificaPerValerio(uid, 'Richiesta di accesso a Eurodex', chi(r));
+}
+
+/**
+ * Un tentativo di accesso (ogni accesso con Google nell'app, scelta di Valerio del 21/11): cosa scrivere
+ * sull'account e quale notifica mandare a Valerio.
+ * - Account nuovo: richiesta in attesa; la notifica la manda avvisaValerio, quando il documento nasce.
+ * - Già deciso: la decisione resta (approvato o rifiutato in automatico) e a Valerio arriva la notifica, così può
+ *   cambiare idea. Ancora in attesa: glielo si ricorda.
+ * - Al massimo una notifica al minuto per account (dieci tocchi di fila non fanno dieci notifiche).
+ */
+function dopoTentativo(uid, r, t, ora) {
+  const info = {
+    nome: pulito(t && t.nome, 80),
+    email: pulito(t && t.email, 120),
+    dispositivo: pulito(t && t.dispositivo, 80),
+  };
+  if (!r) return { nuovo: true, campi: { stato: 'in_attesa', ...info, tentativi: 1 }, notifica: null };
+  const campi = { ...info, tentativi: (Number(r.tentativi) || 1) + 1 };
+  if (ora - millis(r.avvisato) < UN_MINUTO) return { nuovo: false, campi, notifica: null };
+  const stato = STATI.includes(r.stato) ? r.stato : 'in_attesa';
+  const titolo =
+    stato === 'approvato'
+      ? 'Accesso approvato in automatico'
+      : stato === 'in_attesa'
+        ? 'Richiesta di accesso a Eurodex'
+        : 'Accesso rifiutato in automatico';
+  const dopo =
+    stato === 'in_attesa' ? ' · ancora in attesa' : t && t.motivo === 'ancora' ? ' · ha chiesto di nuovo' : '';
+  return { nuovo: false, campi, notifica: notificaPerValerio(uid, titolo, chi(info) + dopo) };
+}
+
+/** Per chi viene approvato: toccandola, l'app si apre e il muro si toglie da solo. */
+function messaggioApprovato() {
+  return {
+    notification: { title: 'Eurodex', body: "Accesso approvato: puoi usare l'app" },
+    data: { tipo: 'approvato', eurodex_azione: 'accesso' },
+    android: ANDROID,
+  };
+}
+
+/** Per chi perde l'accesso (scelta di Valerio del 21/11): parte prima che i suoi dispositivi vengano tolti. */
+function messaggioTolto() {
+  return {
+    notification: { title: 'Eurodex', body: 'Valerio ha tolto il tuo accesso a Eurodex' },
+    data: { tipo: 'tolto', eurodex_azione: 'accesso' },
+    android: ANDROID,
+  };
+}
+
+/**
+ * Cosa fare quando Valerio cambia lo stato di un account. I telefoni dell'account restano registrati: chi viene
+ * rifiutato o perde l'accesso può ritentare, e se Valerio poi lo approva gli arriva la notifica (un account escluso
+ * non riceve altro: non può scrivere eventi di sincronizzazione).
+ */
 function azioniCambioStato(prima, dopo) {
   const p = prima && prima.stato;
   const d = dopo && dopo.stato;
   if (!STATI.includes(d) || p === d) return [];
-  if (d === 'rifiutato' || d === 'revocato') return ['chiudi_sessioni', 'togli_dispositivi'];
+  if (d === 'revocato') return ['avvisa_tolto', 'chiudi_sessioni'];
+  if (d === 'rifiutato') return ['chiudi_sessioni'];
   if (d === 'approvato') return ['avvisa_approvato'];
   return [];
 }
@@ -79,10 +150,16 @@ function amministratore(env) {
 
 module.exports = {
   STATI,
+  UN_MINUTO,
   pulito,
+  millis,
   datiSync,
   tokenDi,
+  chi,
   messaggioRichiesta,
+  dopoTentativo,
+  messaggioApprovato,
+  messaggioTolto,
   azioniCambioStato,
   tokenDaTogliere,
   amministratore,

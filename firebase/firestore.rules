@@ -3,9 +3,11 @@ rules_version = '2';
 // Firebase legato all'account Google con cui si accede nell'app. Solo chi ha fatto l'accesso con quel
 // account può leggerla o modificarla; nessuno può elencare o cancellare le collezioni.
 //
-// Accesso solo su approvazione (docs/progetto-accesso-su-approvazione.md): chi accede manda una richiesta
+// Accesso solo su approvazione (docs/progetto-accesso-su-approvazione.md): ogni accesso con Google nell'app è un
+// tentativo (accessi/{uid}/tentativi); la funzione tentativoDiAccesso crea la richiesta dell'account nuovo
 // (accessi/{uid}, "in_attesa") e solo Valerio la accetta o la rifiuta. Il muro lo accende Valerio dall'app
-// (config/accesso, "obbligatorio"): da quel momento le collezioni sono solo per gli account approvati.
+// (config/accesso, "obbligatorio"): da quel momento le collezioni sono solo per gli account approvati. Con il muro
+// spento le usano tutti, tranne gli account rifiutati o a cui Valerio ha tolto l'accesso (sua scelta, 21/11).
 service cloud.firestore {
   match /databases/{database}/documents {
     function mia(uid) { return request.auth != null && request.auth.uid == uid; }
@@ -26,19 +28,21 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/config/accesso).data.get('obbligatorio', false) == true;
     }
 
-    // lo stato si legge a ogni richiesta: una revoca ha effetto subito
+    // lo stato dell'account si legge a ogni richiesta: una revoca ha effetto subito
+    function conRichiesta(uid) { return exists(/databases/$(database)/documents/accessi/$(uid)); }
+    function statoDi(uid) { return get(/databases/$(database)/documents/accessi/$(uid)).data.get('stato', ''); }
+
     function approvato() {
-      return request.auth != null
-        && conGoogle()
-        && get(/databases/$(database)/documents/accessi/$(request.auth.uid)).data.stato == 'approvato';
+      return request.auth != null && conGoogle()
+        && conRichiesta(request.auth.uid) && statoDi(request.auth.uid) == 'approvato';
     }
 
-    function puoUsare(uid) { return mia(uid) && (!accessoObbligatorio() || admin() || approvato()); }
+    // rifiutato, o con l'accesso tolto: fuori anche con il muro spento
+    function escluso(uid) { return conRichiesta(uid) && statoDi(uid) in ['rifiutato', 'revocato']; }
 
-    // chi ha mandato la richiesta e aspetta la risposta (può registrare il telefono per sapere quando è approvato)
-    function inAttesa(uid) {
-      return mia(uid) && conGoogle()
-        && get(/databases/$(database)/documents/accessi/$(uid)).data.stato == 'in_attesa';
+    // muro acceso: solo gli approvati (e Valerio); muro spento: tutti tranne gli esclusi
+    function puoUsare(uid) {
+      return mia(uid) && (admin() || approvato() || (!accessoObbligatorio() && !escluso(uid)));
     }
 
     // l'interruttore del muro: lo legge chiunque, anche prima di accedere (l'app deve sapere se mostrare il muro;
@@ -53,17 +57,8 @@ service cloud.firestore {
     }
 
     match /accessi/{uid} {
-      // la richiesta: una sola per account, fatta dalla persona stessa, sempre "in attesa", con i soli campi previsti
-      allow create: if mia(uid) && conGoogle()
-        && request.resource.data.keys().hasOnly(['stato', 'nome', 'email', 'dispositivo', 'richiesta'])
-        && request.resource.data.stato == 'in_attesa'
-        // nome e telefono sono solo un aiuto (si decide sull'email del gettone): niente @, che servirebbe a fingersi
-        // qualcun altro, e niente caratteri di controllo o di direzione del testo; al massimo 80 caratteri
-        && request.resource.data.nome is string && request.resource.data.nome.matches('[^@\\p{Cc}\\p{Cf}]{0,80}')
-        && request.resource.data.email == request.auth.token.email
-        && request.resource.data.dispositivo is string
-        && request.resource.data.dispositivo.matches('[^@\\p{Cc}\\p{Cf}]{0,80}')
-        && request.resource.data.richiesta == request.time;
+      // la richiesta la crea solo la funzione tentativoDiAccesso (con nome ed email veri, da Authentication)
+      allow create: if false;
       allow get: if mia(uid) || admin();
       allow list, delete: if admin();
       // solo Valerio decide: cambia lo stato (e la sua nota), il resto della richiesta resta com'è
@@ -74,11 +69,26 @@ service cloud.firestore {
         && (!('nota' in request.resource.data)
             || (request.resource.data.nota is string && request.resource.data.nota.size() <= 200));
 
-      // i dispositivi di un account (per le notifiche): li gestisce solo l'account stesso, se può usare l'app o se
-      // aspetta la risposta di Valerio (così riceve l'avviso quando viene approvato)
+      // un tentativo di accesso (ogni accesso con Google nell'app): lo scrive l'account stesso, con il solo telefono
+      // (nome ed email la funzione li prende da Authentication); lo legge e lo cancella solo la funzione
+      match /tentativi/{tid} {
+        allow create: if mia(uid) && conGoogle()
+          && request.resource.data.keys().hasOnly(['quando', 'dispositivo', 'motivo'])
+          && request.resource.data.quando == request.time
+          // il telefono è solo un aiuto: niente @ (servirebbe a fingersi qualcun altro), niente caratteri di
+          // controllo o di direzione del testo, al massimo 80 caratteri
+          && request.resource.data.dispositivo is string
+          && request.resource.data.dispositivo.matches('[^@\\p{Cc}\\p{Cf}]{0,80}')
+          && request.resource.data.motivo in ['accesso', 'ancora', 'primo'];
+        allow read, update, delete: if false;
+      }
+
+      // i dispositivi di un account (per le notifiche): li gestisce solo l'account stesso, qualunque sia il suo stato
+      // (anche chi è stato rifiutato deve poter sapere se Valerio poi lo approva). Il server decide cosa mandare:
+      // un account escluso non può scrivere eventi di sincronizzazione
       match /dispositivi/{did} {
-        allow get, list, delete: if puoUsare(uid) || inAttesa(uid);
-        allow create, update: if (puoUsare(uid) || inAttesa(uid)) && did.matches('^[A-Za-z0-9_-]{8,64}$')
+        allow get, list, delete: if mia(uid) && conGoogle();
+        allow create, update: if mia(uid) && conGoogle() && did.matches('^[A-Za-z0-9_-]{8,64}$')
           && request.resource.data.keys().hasOnly(['token', 'nome', 'aggiornato'])
           && request.resource.data.token is string && request.resource.data.token.size() <= 4096
           && request.resource.data.nome is string && request.resource.data.nome.size() <= 80
@@ -103,6 +113,8 @@ service cloud.firestore {
       }
       match /dispositivi/{did} {
         allow read, write: if puoUsare(uid);
+        // Valerio vede su quali telefoni è collegato ogni account e quando l'ha aperto l'ultima volta
+        allow get, list: if admin();
       }
       match /eventi/{eid} {
         allow create: if puoUsare(uid) && request.resource.data.testo is string && request.resource.data.testo.size() < 600;

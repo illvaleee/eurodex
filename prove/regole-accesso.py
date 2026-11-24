@@ -1,7 +1,8 @@
 """Regole dell'accesso solo su approvazione (firebase/firestore.rules), provate sugli emulatori di Firebase come le
 proverebbe chi prova a forzarle: richieste fatte a mano con il gettone di un utente, come farebbe un'app modificata.
-Prima con il muro spento (tutto come prima), poi acceso da Valerio con l'interruttore (config/accesso), poi di nuovo
-spento.
+Ogni accesso con Google è un tentativo (accessi/{uid}/tentativi): la richiesta (accessi/{uid}) la crea solo la
+funzione, qui simulata con l'accesso da amministratore dell'emulatore ("owner"). Prima con il muro spento (tutti
+tranne gli esclusi), poi acceso da Valerio con l'interruttore (config/accesso), poi di nuovo spento.
 Si avvia dentro gli emulatori:
   firebase emulators:exec --only auth,firestore --project collezione-euro-24ecd "python3 prove/regole-accesso.py"
 """
@@ -100,21 +101,38 @@ def leggi(chi, percorso):
     return http('GET', f'{FS}/{percorso}', chi=chi)[0]
 
 
-def richiesta(email, **altro):
-    d = {'stato': 'in_attesa', 'nome': 'Mario', 'email': email, 'dispositivo': 'Pixel 6'}
+def tentativo(chi, uid, **altro):
+    d = {'dispositivo': 'Pixel 6', 'motivo': 'accesso'}
     d.update(altro)
-    return d
+    return scrivi(chi, f'accessi/{uid}/tentativi/t{abs(hash((chi, str(sorted(d.items()))))) % 10**9}', d, ora=['quando'])
 
+
+def richiesta_della_funzione(uid, email, stato='in_attesa'):
+    """Quello che fa tentativoDiAccesso per un account nuovo (con l'SDK Admin, senza regole)."""
+    return scrivi('owner', f'accessi/{uid}', {'stato': stato, 'nome': 'X', 'email': email, 'dispositivo': 'Pixel 6',
+                                              'tentativi': 1}, ora=['richiesta', 'ultimoTentativo'], esiste=False)
+
+
+def decide(stato, uid):
+    return scrivi(t_val, f'accessi/{uid}', {'stato': stato}, ora=['decisione'], esiste=True, maschera=['stato', 'decisione'])
+
+
+def telefono(chi, uid, did='telefono-di-prova'):
+    return scrivi(chi, f'accessi/{uid}/dispositivi/{did}', {'token': 'f' * 40, 'nome': 'Pixel'}, ora=['aggiornato'])
+
+
+usa = lambda chi, uid: scrivi(chi, f'collezioni/{uid}/voci/f', {'e': {}}) == 200 and leggi(chi, f'collezioni/{uid}/voci/f') == 200
+fuori = lambda chi, uid: scrivi(chi, f'collezioni/{uid}/voci/f', {'e': {}}) == 403 and leggi(chi, f'collezioni/{uid}/voci/f') == 403
 
 http('DELETE', f'http://127.0.0.1:8080/emulator/v1/projects/{P}/databases/(default)/documents')
 VAL, t_val = utente('valerio', 'valerio@example.com')
 MAR, t_mar = utente('mario', 'mario@example.com')
 LUC, t_luc = utente('lucia', 'lucia@example.com')
-
-print('— Muro spento: tutto come prima —')
+UGO, t_ugo = utente('ugo', 'ugo@example.com')
 carica_regole(VAL)
-ok(scrivi(t_mar, f'collezioni/{MAR}/voci/f', {'e': {}}) == 200,
-   'senza il documento dell\'interruttore chi non è approvato usa ancora la sincronizzazione')
+
+print('— Muro spento, senza interruttore: tutto come prima —')
+ok(usa(t_mar, MAR), 'senza il documento dell\'interruttore chi non ha richiesta usa la sincronizzazione')
 
 print('— L\'interruttore del muro (config/accesso) —')
 ok(leggi('', 'config/accesso') in (200, 404), 'l\'interruttore si legge anche senza accesso (dice solo sì o no)')
@@ -128,105 +146,111 @@ ok(scrivi(gettone_senza_firma(VAL, 'valerio@example.com', False), 'config/access
 ok(scrivi(t_val, 'config/accesso', {'obbligatorio': False}, ora=['cambiato']) == 200, 'Valerio scrive l\'interruttore spento')
 ok(leggi('', 'config/accesso') == 200 and leggi(t_mar, 'config/accesso') == 200, 'e tutti lo leggono')
 ok(http('GET', f'{FS}/config', chi=t_val)[0] == 403, 'la raccolta config non si elenca')
-ok(scrivi(t_mar, f'collezioni/{MAR}/voci/f', {'e': {}}) == 200, 'muro spento: Mario sincronizza come prima')
-ok(scrivi(t_mar, f'accessi/{MAR}', richiesta('mario@example.com', stato='approvato'), ora=['richiesta'], esiste=False) == 403,
-   'nessuno si approva da solo nella richiesta')
-ok(scrivi(t_mar, f'accessi/{LUC}', richiesta('mario@example.com'), ora=['richiesta'], esiste=False) == 403,
-   'nessuno manda la richiesta per un altro')
-ok(scrivi(t_mar, f'accessi/{MAR}', richiesta('altro@example.com'), ora=['richiesta'], esiste=False) == 403,
-   'l\'email della richiesta deve essere quella dell\'account')
-ok(scrivi(t_mar, f'accessi/{MAR}', richiesta('mario@example.com', admin=True), ora=['richiesta'], esiste=False) == 403,
-   'niente campi in più nella richiesta')
-ok(scrivi(t_mar, f'accessi/{MAR}', richiesta('mario@example.com', nome='x' * 81), ora=['richiesta'], esiste=False) == 403,
-   'nome troppo lungo: rifiutato')
-ok(scrivi(t_mar, f'accessi/{MAR}', richiesta('mario@example.com'), esiste=False) == 403,
-   'la data della richiesta la mette il server, non l\'app')
-for cosa, valori in (('una @ nel nome (per fingersi un altro)', {'nome': 'Mamma (mamma.valerio@gmail.com)'}),
-                    ('un carattere che rigira il testo nel nome', {'nome': 'Mario \u202eossoR'}),
-                    ('un a capo nel nome', {'nome': 'Mario\nRossi'}),
-                    ('una @ nel nome del telefono', {'dispositivo': 'Samsung (x@y.it)'})):
-    ok(scrivi(t_mar, f'accessi/{MAR}', richiesta('mario@example.com', **valori), ora=['richiesta'], esiste=False) == 403,
-       f'{cosa}: rifiutato')
-t_mar_pw = gettone_senza_firma(MAR, 'mario@example.com', True, metodo='password')
-ok(scrivi(t_mar_pw, f'accessi/{MAR}', richiesta('mario@example.com'), ora=['richiesta'], esiste=False) == 403,
-   'una richiesta da un accesso che non è Google: rifiutata')
-ok(scrivi(t_mar, f'accessi/{MAR}', richiesta('mario@example.com'), ora=['richiesta'], esiste=False) == 200,
-   'la richiesta giusta passa ("in attesa")')
+
+print('— Le richieste le crea solo la funzione —')
+for chi, cosa in ((t_mar, 'Mario'), (t_val, 'nemmeno Valerio')):
+    ok(scrivi(chi, f'accessi/{MAR}', {'stato': 'in_attesa', 'nome': 'Mario', 'email': 'mario@example.com',
+                                      'dispositivo': 'Pixel 6'}, ora=['richiesta'], esiste=False) == 403,
+       f'{cosa}: nessuna richiesta scritta dall\'app')
+ok(scrivi(t_mar, f'accessi/{MAR}', {'stato': 'approvato'}, ora=['richiesta'], esiste=False) == 403,
+   'nessuno si approva da solo')
+
+print('— I tentativi di accesso —')
+ok(tentativo(t_mar, MAR) == 200, 'Mario manda il suo tentativo (telefono e motivo)')
+ok(tentativo(t_mar, MAR, motivo='ancora', dispositivo='Lucìa Pérez 🪙 Galaxy') == 200, 'chiede di nuovo (accenti ed emoji: va bene)')
+ok(tentativo(t_mar, MAR, motivo='primo') == 200, 'primo controllo dopo l\'aggiornamento')
+ok(tentativo(t_mar, LUC) == 403, 'nessuno manda tentativi per un altro')
+ok(tentativo('', MAR) == 403, 'senza accesso nemmeno')
+ok(tentativo(gettone_senza_firma(MAR, 'mario@example.com', True, metodo='password'), MAR) == 403,
+   'un accesso che non è Google: rifiutato')
+ok(tentativo(t_mar, MAR, motivo='approvami') == 403, 'solo i motivi previsti')
+ok(tentativo(t_mar, MAR, stato='approvato') == 403, 'niente campi in più (nemmeno uno stato)')
+ok(tentativo(t_mar, MAR, dispositivo='x' * 81) == 403, 'telefono troppo lungo: rifiutato')
+for cosa, valori in (('una @ nel telefono (per fingersi un altro)', {'dispositivo': 'Mamma (mamma.valerio@gmail.com)'}),
+                    ('un carattere che rigira il testo', {'dispositivo': 'Pixel ‮6'}),
+                    ('un a capo', {'dispositivo': 'Pixel\n6'})):
+    ok(tentativo(t_mar, MAR, **valori) == 403, f'{cosa}: rifiutato')
+ok(scrivi(t_mar, f'accessi/{MAR}/tentativi/senza-ora', {'dispositivo': 'Pixel', 'motivo': 'accesso', 'quando': 'adesso'}) == 403,
+   'l\'ora del tentativo la mette il server')
+ok(leggi(t_mar, f'accessi/{MAR}/tentativi/senza-ora') == 403 and http('GET', f'{FS}/accessi/{MAR}/tentativi', chi=t_mar)[0] == 403,
+   'i tentativi non si leggono (li legge solo la funzione)')
+
+print('— Le richieste (create dalla funzione) e le decisioni di Valerio —')
+ok(richiesta_della_funzione(MAR, 'mario@example.com') == 200 and richiesta_della_funzione(LUC, 'lucia@example.com') == 200,
+   '(la funzione crea le richieste di Mario e Lucia)')
+ok(leggi(t_mar, f'accessi/{MAR}') == 200, 'ognuno vede la sua richiesta')
+ok(leggi(t_mar, f'accessi/{LUC}') == 403, 'nessuno vede la richiesta degli altri')
 ok(scrivi(t_mar, f'accessi/{MAR}', {'stato': 'approvato'}, ora=['decisione'], esiste=True, maschera=['stato', 'decisione']) == 403,
    'chi è in attesa non si approva da solo')
-ok(scrivi(t_mar, f'accessi/{MAR}', richiesta('mario@example.com'), ora=['richiesta']) == 403,
-   'la richiesta non si riscrive (una sola per account)')
-ok(leggi(t_mar, f'accessi/{MAR}') == 200, 'ognuno vede la sua richiesta')
-ok(scrivi(t_luc, f'accessi/{LUC}', richiesta('lucia@example.com', nome='Lucìa Pérez 🪙', dispositivo='Galaxy S24'),
-          ora=['richiesta'], esiste=False) == 200, 'anche Lucia chiede (nome con accenti ed emoji: va bene)')
-ok(leggi(t_mar, f'accessi/{LUC}') == 403, 'nessuno vede la richiesta degli altri')
 ok(http('GET', f'{FS}/accessi', chi=t_mar)[0] == 403, 'solo Valerio vede l\'elenco delle richieste')
-# lo stesso account di Valerio ma con un gettone che non ha l'email verificata (difesa in più: si entra solo con Google)
-t_val_nv = gettone_senza_firma(VAL, 'valerio@example.com', verificata=False)
 ok(http('GET', f'{FS}/accessi', chi=gettone_senza_firma(VAL, 'valerio@example.com', True))[0] == 200,
    '(controllo della prova: lo stesso gettone con l\'email verificata è amministratore)')
-ok(http('GET', f'{FS}/accessi', chi=t_val_nv)[0] == 403, 'senza email verificata nemmeno l\'account di Valerio è amministratore')
+ok(http('GET', f'{FS}/accessi', chi=gettone_senza_firma(VAL, 'valerio@example.com', verificata=False))[0] == 403,
+   'senza email verificata nemmeno l\'account di Valerio è amministratore')
 ok(http('GET', f'{FS}/accessi', chi=gettone_senza_firma(VAL, 'valerio@example.com', True, metodo='password'))[0] == 403,
    'senza Google nemmeno l\'account di Valerio è amministratore')
 st, j = http('GET', f'{FS}/accessi', chi=t_val)
 ok(st == 200 and len(j.get('documents', [])) == 2, f'Valerio vede le richieste ({len(j.get("documents", []))})')
 ok(scrivi(t_val, f'accessi/{MAR}', {'stato': 'approvato'}, esiste=True, maschera=['stato']) == 403,
    'anche per Valerio la data della decisione la mette il server')
-ok(scrivi(t_val, f'accessi/{MAR}', {'stato': 'promosso'}, ora=['decisione'], esiste=True, maschera=['stato', 'decisione']) == 403,
-   'solo gli stati previsti')
+ok(decide('promosso', MAR) == 403, 'solo gli stati previsti')
 ok(scrivi(t_val, f'accessi/{MAR}', {'nome': 'Altro'}, ora=['decisione'], esiste=True, maschera=['nome', 'decisione']) == 403,
    'Valerio non cambia nome ed email di chi chiede (solo lo stato e la sua nota)')
 ok(scrivi(t_val, f'accessi/{MAR}', {'stato': 'approvato', 'nota': 'amico di Vale'}, ora=['decisione'], esiste=True,
           maschera=['stato', 'nota', 'decisione']) == 200, 'Valerio approva Mario, con una nota')
-ok(scrivi(t_val, f'accessi/{LUC}', {'stato': 'rifiutato'}, ora=['decisione'], esiste=True, maschera=['stato', 'decisione']) == 200,
-   'Valerio rifiuta Lucia')
-ok(scrivi(t_val, f'accessi/{VAL}', richiesta('valerio@example.com', nome='Valerio'), ora=['richiesta'], esiste=False) == 200
-   and scrivi(t_val, f'accessi/{VAL}', {'stato': 'approvato'}, ora=['decisione'], esiste=True, maschera=['stato', 'decisione']) == 200,
-   'Valerio approva anche sé stesso')
+ok(decide('rifiutato', LUC) == 200, 'Valerio rifiuta Lucia')
+
+print('— I telefoni per le notifiche: ognuno i suoi, qualunque sia lo stato —')
+ok(telefono(t_mar, MAR) == 200, 'Mario (approvato) registra il suo telefono')
+ok(telefono(t_luc, LUC) == 200, 'anche Lucia (rifiutata): saprà se Valerio poi la approva')
+ok(telefono(t_ugo, UGO) == 200, 'e Ugo, che non ha ancora la richiesta')
+ok(telefono(t_mar, UGO, 'telefono-mario') == 403, 'nessuno registra telefoni nella richiesta di un altro')
+ok(telefono(gettone_senza_firma(UGO, 'ugo@example.com', True, metodo='password'), UGO) == 403, 'senza Google no')
+ok(scrivi(t_mar, f'accessi/{MAR}/dispositivi/telefono-di-prova', {'token': 'f' * 40, 'nome': 'Pixel', 'chi': 'x'},
+          ora=['aggiornato']) == 403, 'niente campi in più')
+ok(leggi(t_luc, f'accessi/{LUC}/dispositivi/telefono-di-prova') == 200 and leggi(t_luc, f'accessi/{MAR}/dispositivi/telefono-di-prova') == 403,
+   'ognuno vede solo i suoi telefoni')
+
+print('— Muro spento: tutti tranne gli esclusi (scelta di Valerio del 21/11) —')
+ok(usa(t_mar, MAR), 'Mario (approvato) sincronizza')
+ok(usa(t_ugo, UGO), 'Ugo, senza richiesta, sincronizza come prima')
+ok(fuori(t_luc, LUC), 'Lucia (rifiutata) resta fuori anche con il muro spento')
+ok(scrivi(t_luc, f'collezioni/{LUC}/eventi/e1', {'testo': 'ciao'}) == 403, 'e non fa partire notifiche (eventi)')
+ok(usa(t_val, VAL), 'Valerio usa la sua collezione')
+
+print('— Valerio vede i telefoni di tutti (dove è collegato ogni account) —')
+ok(scrivi(t_mar, f'collezioni/{MAR}/dispositivi/d1', {'nome': 'Pixel di Mario', 'ultimo': 1}) == 200,
+   '(il telefono di Mario si registra nella sua collezione)')
+ok(leggi(t_val, f'collezioni/{MAR}/dispositivi/d1') == 200 and http('GET', f'{FS}/collezioni/{MAR}/dispositivi', chi=t_val)[0] == 200,
+   'Valerio li vede')
+ok(scrivi(t_val, f'collezioni/{MAR}/dispositivi/d1', {'nome': 'x'}) == 403, 'ma non li cambia')
+ok(leggi(t_ugo, f'collezioni/{MAR}/dispositivi/d1') == 403, 'gli altri no')
+ok(leggi(t_val, f'collezioni/{MAR}/voci/f') == 403, 'e la collezione degli altri non la legge nemmeno Valerio')
 
 print('— Muro acceso da Valerio —')
 ok(scrivi(t_val, 'config/accesso', {'obbligatorio': True}, ora=['cambiato']) == 200, 'Valerio accende il muro')
-ok(scrivi(t_mar, f'collezioni/{MAR}/voci/f', {'e': {}}) == 200 and leggi(t_mar, f'collezioni/{MAR}/voci/f') == 200,
-   'Mario (approvato) sincronizza')
+ok(usa(t_mar, MAR), 'Mario (approvato) sincronizza')
 ok(leggi(t_mar, f'collezioni/{LUC}/voci/f') == 403, 'Mario non legge la collezione di Lucia')
 ok(leggi(gettone_senza_firma(MAR, 'mario@example.com', True, metodo='password'), f'collezioni/{MAR}/voci/f') == 403,
    'Mario approvato, ma entrato senza Google: non legge la sua collezione')
-ok(scrivi(t_luc, f'collezioni/{LUC}/voci/f', {'e': {}}) == 403 and leggi(t_luc, f'collezioni/{LUC}') == 403,
-   'Lucia (rifiutata) non legge e non scrive niente')
-ok(scrivi(t_luc, f'collezioni/{LUC}/eventi/e1', {'testo': 'ciao'}) == 403,
-   'Lucia non fa partire notifiche (eventi)')
-_, t_nuovo = utente('nuovo', 'nuovo@example.com')
-ok(scrivi(t_nuovo, f'collezioni/nuovo/voci/f', {'e': {}}) == 403, 'un account senza richiesta non usa niente')
-ok(scrivi(t_mar, f'accessi/{MAR}/dispositivi/telefono-mario', {'token': 'abc', 'nome': 'Pixel'}, ora=['aggiornato']) == 200,
-   'Mario registra il suo telefono per le notifiche')
-ok(scrivi(t_luc, f'accessi/{LUC}/dispositivi/telefono-lucia', {'token': 'abc', 'nome': 'Pixel'}, ora=['aggiornato']) == 403,
-   'Lucia no')
-ok(scrivi(t_val, f'collezioni/{VAL}/voci/f', {'e': {}}) == 200, 'Valerio usa la sua collezione')
-ok(scrivi(t_val, f'accessi/{MAR}', {'stato': 'revocato'}, ora=['decisione'], esiste=True, maschera=['stato', 'decisione']) == 200,
-   'Valerio toglie l\'accesso a Mario')
-ok(leggi(t_mar, f'collezioni/{MAR}/voci/f') == 403 and scrivi(t_mar, f'collezioni/{MAR}/voci/f', {'e': {}}) == 403,
-   'la revoca ha effetto subito, con lo stesso gettone')
-ok(leggi(t_mar, f'accessi/{MAR}/dispositivi/telefono-mario') == 403, 'e Mario non vede più nemmeno i suoi dispositivi')
-ok(scrivi(t_val, f'accessi/{MAR}', {'stato': 'approvato'}, ora=['decisione'], esiste=True, maschera=['stato', 'decisione']) == 200
-   and leggi(t_mar, f'collezioni/{MAR}/voci/f') == 200, 'Valerio ci ripensa: Mario torna dentro')
+ok(fuori(t_luc, LUC), 'Lucia (rifiutata) non legge e non scrive niente')
+ok(fuori(t_ugo, UGO), 'Ugo, senza richiesta, nemmeno')
+ok(richiesta_della_funzione(UGO, 'ugo@example.com') == 200 and fuori(t_ugo, UGO),
+   'Ugo in attesa: ancora fuori finché Valerio non lo approva')
+ok(scrivi(t_ugo, f'collezioni/{UGO}/eventi/e1', {'testo': 'ciao'}) == 403, 'e non fa partire notifiche')
+ok(telefono(t_ugo, UGO, 'altro-telefono-ugo') == 200, 'però registra il telefono, per sapere quando è approvato')
+ok(usa(t_val, VAL), 'Valerio usa la sua collezione (anche senza richiesta)')
+ok(decide('revocato', MAR) == 200, 'Valerio toglie l\'accesso a Mario')
+ok(fuori(t_mar, MAR), 'la revoca ha effetto subito, con lo stesso gettone')
+ok(tentativo(t_mar, MAR, motivo='ancora') == 200, 'Mario può comunque ritentare (Valerio ne riceve la notifica)')
+ok(decide('approvato', MAR) == 200 and usa(t_mar, MAR), 'Valerio ci ripensa: Mario torna dentro')
+ok(decide('approvato', LUC) == 200 and usa(t_luc, LUC), 'e approva anche Lucia, che aveva rifiutato')
 
-print('— Chi aspetta la risposta registra il telefono (per sapere quando è approvato) —')
-UGO, t_ugo = utente('ugo', 'ugo@example.com')
-ok(scrivi(t_ugo, f'accessi/{UGO}/dispositivi/telefono-ugo', {'token': 'abc', 'nome': 'Pixel'}, ora=['aggiornato']) == 403,
-   'senza richiesta no')
-ok(scrivi(t_ugo, f'accessi/{UGO}', richiesta('ugo@example.com', nome='Ugo'), ora=['richiesta'], esiste=False) == 200,
-   'Ugo chiede l\'accesso col muro acceso')
-ok(scrivi(t_ugo, f'accessi/{UGO}/dispositivi/telefono-ugo', {'token': 'abc', 'nome': 'Pixel'}, ora=['aggiornato']) == 200,
-   'in attesa registra il suo telefono')
-ok(scrivi(t_ugo, f'collezioni/{UGO}/voci/f', {'e': {}}) == 403, 'ma non usa la sincronizzazione finché non è approvato')
-ok(scrivi(t_mar, f'accessi/{UGO}/dispositivi/telefono-mario', {'token': 'abc', 'nome': 'Pixel'}, ora=['aggiornato']) == 403,
-   'nessuno registra telefoni nella richiesta di un altro')
-
-print('— Valerio spegne il muro: tutto come prima —')
+print('— Valerio spegne il muro —')
+ok(decide('revocato', LUC) == 200, 'Valerio toglie l\'accesso a Lucia')
 ok(scrivi(t_val, 'config/accesso', {'obbligatorio': False}, ora=['cambiato']) == 200, 'Valerio spegne il muro')
-ok(scrivi(t_luc, f'collezioni/{LUC}/voci/f', {'e': {}}) == 200, 'anche Lucia (rifiutata) torna a sincronizzare')
-ok(scrivi(t_val, 'config/accesso', {'obbligatorio': True}, ora=['cambiato']) == 200
-   and scrivi(t_luc, f'collezioni/{LUC}/voci/f', {'e': {}}) == 403, 'riacceso: Lucia di nuovo fuori, subito')
+ok(fuori(t_luc, LUC), 'Lucia (accesso tolto) resta fuori anche con il muro spento')
+ok(usa(t_ugo, UGO) and usa(t_mar, MAR), 'gli altri dentro (Ugo in attesa, Mario approvato)')
 
 print('RISULTATO:', 'TUTTO OK' if not fallite else f'{len(fallite)} PROBLEMI')
 raise SystemExit(1 if fallite else 0)
