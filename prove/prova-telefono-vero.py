@@ -318,6 +318,29 @@ ok(any(c.startswith('pm clear') for c in comandi(s)) and any(c.startswith('monke
    'emulatore: pm clear e monkey come prima')
 ok(not any('set_dnd' in c or 'stayon' in c for c in comandi(s)), 'emulatore: niente "non disturbare" né schermo acceso')
 
+# 10b. "non disturbare" già acceso all'inizio (per esempio da un orario): il giro non lo tocca mai
+ORARIO = copy.deepcopy(VALERIO)
+ORARIO['impostazioni']['global']['zen_mode'] = '1'
+telefono(ORARIO)
+E = carica('--senza-account', '--monkey')
+
+
+def giro_orario():
+    for nome, _, prepara, rimetti in E.GIRI:
+        E.giro_configurazione(nome, prepara, rimetti)
+    E.stress()
+
+
+E.giro = giro_orario
+try:
+    E.main()
+except SystemExit:
+    pass
+s = stato()
+ok(not any('set_dnd' in c for c in comandi(s)) and s['impostazioni']['global']['zen_mode'] == '1',
+   '"non disturbare" già acceso (anche da un orario): nessun set_dnd, resta com\'era')
+ok(senza_chiamate(s) == senza_chiamate(ORARIO), 'e alla fine il resto è com\'era')
+
 # 11. sul PC nessuna shell: niente shell=True, niente > o | fuori da "adb shell"/"exec-out"
 sorgente = open(ESPLORATORE, encoding='utf-8').read()
 ok('shell=True' not in sorgente, 'nessun shell=True: i comandi sono liste di argomenti (uguale su Windows)')

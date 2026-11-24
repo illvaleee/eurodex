@@ -179,6 +179,9 @@ class Impostazioni:
     def __init__(self):
         self.prima = None
         self.chiuso = False
+        # "non disturbare" acceso dal giro: solo allora alla fine si spegne. Se era già acceso (magari da un orario di
+        # chi usa il telefono) non si tocca: rimetterlo a mano lo lascerebbe acceso anche dopo la fine dell'orario
+        self.dnd_nostro = False
 
     @staticmethod
     def _semplice(spazio, chiave):
@@ -244,6 +247,8 @@ class Impostazioni:
             return []
         mancate = []
         for nome in nomi:
+            if nome == 'zen' and not self.dnd_nostro:
+                continue
             if self.prima[nome][0] == 'sconosciuto' or self._uguale(nome, self._leggi(nome)):
                 continue
             cmd = self._comando(nome)
@@ -294,9 +299,14 @@ Non è stato cambiato niente. Per vedere cosa farebbe il giro: --prova"""
 def prepara_telefono_vero():
     if not OPZIONI & {'--senza-account', '--anche-con-account'}:
         sys.exit(SPIEGAZIONE_ACCOUNT)
-    log('Telefono vero: schermo sempre acceso e "non disturbare" per la durata del giro (poi si rimettono)')
     adb_shell('svc', 'power', 'stayon', 'usb', timeout=30)
-    adb_shell('cmd', 'notification', 'set_dnd', 'priority', timeout=30)
+    if IMP.prima and IMP.prima['zen'] in (('valore', '0'), ('assente', None)):
+        log('Telefono vero: schermo sempre acceso e "non disturbare" per la durata del giro (poi si rimettono)')
+        adb_shell('cmd', 'notification', 'set_dnd', 'priority', timeout=30)
+        IMP.dnd_nostro = True
+    else:
+        log('Telefono vero: schermo sempre acceso per la durata del giro; "non disturbare" era già acceso (anche da un '
+            'orario) e non lo tocco')
 
 
 def in_primo_piano():
@@ -1391,7 +1401,8 @@ def stress():
         # uno scorrimento dal bordo può aprire le impostazioni rapide (Wi-Fi, modalità aereo): si rimettono subito,
         # e "non disturbare" resta acceso fino alla fine del giro
         IMP.rimetti('aereo', 'wifi')
-        adb_shell('cmd', 'notification', 'set_dnd', 'priority', timeout=30)
+        if IMP.dnd_nostro:
+            adb_shell('cmd', 'notification', 'set_dnd', 'priority', timeout=30)
     open(os.path.join(OUT, 'stress.txt'), 'w').write(out)
     if re.search(r'CRASH', out):
         problema('errore', 'crash', 'stress test', 'l\'app si è chiusa durante i tocchi a raffica', foto('stress'))
