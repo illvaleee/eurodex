@@ -313,7 +313,8 @@ public class NativoPlugin extends Plugin {
     @PluginMethod
     public void scaricaArchivio(PluginCall call) {
         String p = call.getString("percorso", ""), f = call.getString("file", "");
-        if (p == null || !p.startsWith("dati/") || !Archivio.PERCORSO.matcher(p).matches() || f == null || !FILE_LOCALE.matcher(f).matches()) {
+        if (p == null || !p.startsWith("dati/") || !Archivio.PERCORSO.matcher(p).matches() || f == null || !FILE_LOCALE.matcher(f).matches()
+            || !Archivio.stessoTipo(p, f)) {
             call.reject("percorso non previsto");
             return;
         }

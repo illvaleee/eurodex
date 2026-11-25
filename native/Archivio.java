@@ -4,6 +4,7 @@ import com.google.android.gms.tasks.Task;
 import com.google.android.gms.tasks.Tasks;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.storage.FileDownloadTask;
 import com.google.firebase.storage.FirebaseStorage;
 import com.google.firebase.storage.StorageException;
 import com.google.firebase.storage.StorageReference;
@@ -63,6 +64,15 @@ final class Archivio {
         return FirebaseAuth.getInstance().getCurrentUser();
     }
 
+    /** Il file sul telefono è dello stesso tipo di quello su Storage: catalogo con catalogo, schede con schede, una foto
+     * solo con lo stesso nome. I due percorsi hanno già passato ciascuno il suo controllo (revisione di Claude 3). */
+    static boolean stessoTipo(String percorso, String file) {
+        if (percorso.startsWith("dati/img/")) return file.equals(percorso);
+        if (percorso.startsWith("dati/catalog")) return file.startsWith("dati/catalogo-");
+        if (percorso.startsWith("dati/details")) return file.startsWith("dati/schede-");
+        return false;
+    }
+
     static StorageReference riferimento(String percorso) {
         prepara();
         if (percorso == null || !PERCORSO.matcher(percorso).matches()) throw new IllegalArgumentException("percorso non previsto");
@@ -105,9 +115,13 @@ final class Archivio {
         File p = dest.getParentFile();
         if (p != null) p.mkdirs();
         File tmp = new File(dest.getPath() + ".part");
+        FileDownloadTask t = riferimento(percorso).getFile(tmp);
         try {
-            aspetta(riferimento(percorso).getFile(tmp), 180);
+            aspetta(t, 180);
         } catch (Exception e) {
+            // scaduto il tempo, il download andrebbe avanti da solo: si ferma, così il giro dopo non ne ha due sullo
+            // stesso file (revisione di Claude 3)
+            t.cancel();
             tmp.delete();
             throw e;
         }
