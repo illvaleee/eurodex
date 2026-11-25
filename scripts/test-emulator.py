@@ -287,6 +287,14 @@ adb('logcat -c')
 # per l'aggiornamento, che partono dalla versione pubblicata, il muro resta spento finché quella non è almeno la 1.0.83
 adb('shell setprop debug.eurodex.prove 1')
 adb('shell setprop debug.eurodex.muro no')
+# passo 5 (D): versioni e catalogo stanno su Storage e li legge solo chi può usare Eurodex. Se il job ha acceso gli
+# emulatori di Firebase (EURODEX_EMULATORI=1, prove/emulatori-apk.py), l'app dalla 1.0.84 parla solo con loro, e c'è
+# un utente di prova già approvato. Senza emulatori l'app parla col server vero e qui non ha una sessione. "0" sempre
+# scritto: la proprietà dura fino al riavvio, e un valore rimasto non deve decidere al posto del job
+EMULATORI = os.environ.get('EURODEX_EMULATORI') == '1'
+adb(f'shell setprop debug.eurodex.emulatori {"1" if EMULATORI else "0"}')
+note('emulatori di Firebase: ' + ('sì (utente di prova prova-apk@example.com)' if EMULATORI
+                                   else 'no (server vero, senza sessione)'))
 
 def senza_strumento(righe):
     """Toglie le righe di un crash di uiautomator, lo strumento della prova che legge lo schermo («FATAL EXCEPTION:
@@ -656,6 +664,27 @@ shot('cerca')
 ensure_app()
 tap('Impostazioni', wait=2.5)
 shot('impostazioni')
+entrato = False
+if EMULATORI:
+    # l'utente di prova entra come farebbe una persona: Impostazioni → «Accedi con Google». Nel modo degli emulatori
+    # l'app non apre la finestra di Google e usa il gettone finto, che vale solo per l'emulatore di Auth (C, passo 5).
+    # L'email compare solo se l'accesso è riuscito tutto: Auth, e la collezione letta e scritta su Firestore
+    if tap('Accedi con Google', exact=True, wait=2, required=False):
+        fine = time.time() + 45
+        while time.time() < fine:
+            tutto = testi_schermo()
+            if 'prova-apk@example.com' in tutto:
+                entrato = True
+                break
+            no = [r for r in tutto.splitlines() if 'accesso non riuscito' in r or 'non è approvato' in r]
+            if no:
+                note(f'  (l\'app risponde: {no[0][:120]})')
+                break
+            time.sleep(2)
+    shot('accesso_di_prova')
+    check(entrato, 'accesso di prova con gli emulatori: «Accedi con Google» entra come prova-apk@example.com')
+    # le impostazioni sono un foglio: chiuse e riaperte, ripartono dall'inizio come le aspetta il resto della prova
+    back(); tap('Impostazioni', wait=2.5)
 # il riquadro di Google Drive sta più in basso: si scorre piano (senza "lancio") e si aspetta che la pagina sia ferma,
 # perché Android aggiorna le posizioni dei pulsanti solo a pagina ferma (altrimenti il tocco cade sul pulsante sbagliato)
 adb('shell input swipe 540 1700 540 900 1200'); time.sleep(2); dump()
@@ -706,6 +735,10 @@ def risposta_al_controllo():
         if 'ultima versione' in tutto or 'nuova versione' in tutto:
             ok = True
             break
+        # senza emulatori (server vero) non c'è una sessione: dalla 1.0.84 la risposta giusta è «serve l'accesso»
+        if not EMULATORI and "serve l'accesso con google" in tutto:
+            ok = True
+            break
         if 'novità delle versioni' in tutto and 'controlla aggiornamenti' not in tutto and 'controllo in corso' not in tutto:
             novita = True
             break
@@ -733,8 +766,22 @@ if visti:
     note(f'  (messaggi visti durante il controllo: {sorted(visti)})')
 shot('aggiornamenti')
 note(f'  (durante il controllo il pulsante mostra "Controllo in corso…": {"sì" if attesa_vista else "non visto (risposta immediata?)"})')
-check(ok, 'il controllo aggiornamenti risponde (legge la versione pubblicata)')
+check(ok, 'il controllo aggiornamenti risponde ' + ('(legge rilasci/version.json dallo Storage degli emulatori)'
+                                                     if EMULATORI else '(senza sessione: dice che serve l\'accesso)'))
 shot('impostazioni_3')
+if entrato:
+    # e poi fuori, con «Esci dall'account»: il resto della prova (il muro acceso al 7b, il backup di Android al 9) è
+    # fatto per un telefono senza sessione. Il pulsante sta più in alto: le impostazioni di nuovo dall'inizio
+    back(); tap('Impostazioni', wait=2.5)
+    uscito = False
+    if tap("Esci dall'account su questo dispositivo", exact=True, wait=2, required=False) and \
+            tap('Esci', exact=True, wait=3, required=False):
+        # riaperte, le impostazioni si ridisegnano tutte: senza sessione «Account Google» ha «consigliato», con la
+        # sessione «attivo». La voce si cerca scorrendo la pagina, come nel resto della prova
+        back(); tap('Impostazioni', wait=2.5)
+        uscito = scorri_finche('consigliato')
+    shot('uscita_di_prova')
+    check(uscito, "uscita dall'account di prova: dopo «Esci», «Account Google» torna «consigliato»")
 
 # 6b. catalogo in PDF: il file si crea e si apre la condivisione di Android (salva su Drive, manda su WhatsApp…)
 if tap('Crea il PDF del catalogo', exact=True, wait=6, required=False):

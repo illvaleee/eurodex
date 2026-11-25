@@ -263,6 +263,9 @@ jobs:
             --project collezione-euro-24ecd > "$RUNNER_TEMP/emulatori.log" 2>&1 &
           python3 prove/emulatori-apk.py pronti || { tail -60 "$RUNNER_TEMP/emulatori.log"; exit 1; }
           python3 prove/emulatori-apk.py prepara --numero "$N" --apk CollezioneEuro.apk
+          # il catalogo con lo stesso script dei workflow, quindi con gli stessi nomi e indice.json per ultimo (D 2a)
+          STORAGE_EMULATOR_HOST=127.0.0.1:9199 STORAGE_TOKEN=owner \
+            node scripts/carica-storage.mjs dati collezione-euro-24ecd.firebasestorage.app www/data
 
       # ffmpeg (pacchetto firmato di Ubuntu) unisce i pezzi del video della prova; senza, restano separati
       - name: ffmpeg per il video della prova
@@ -272,6 +275,9 @@ jobs:
 
       - name: Prova su un telefono Android simulato
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        env:
+          # gli emulatori di Firebase sono accesi (passo qui sopra): l'app parla solo con loro (debug.eurodex.emulatori)
+          EURODEX_EMULATORI: '1'
         with:
           api-level: 34
           target: default
