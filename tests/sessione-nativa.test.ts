@@ -45,7 +45,7 @@ describe('«Un ultimo passo»: la sessione nativa con lo stesso account della pa
     ]);
   });
 
-  it("se in silenzio arriva un altro account si sceglie nella finestra, e quello sbagliato non entra mai", async () => {
+  it('se in silenzio arriva un altro account si sceglie nella finestra, e quello sbagliato non entra mai', async () => {
     risposte.push(errore('ALTRO_ACCOUNT'), errore('ALTRO_ACCOUNT'));
     expect(await apriSessioneNativa('u1', 'a@example.com')).toBe('altroAccount');
     expect(chiamate).toHaveLength(2);
