@@ -1,10 +1,11 @@
 # Prova reale del server della sincronizzazione, fatta come la fa l'app (senza account, solo con il codice):
 # 1) scrive una collezione di prova e un "evento"; 2) controlla che il postino lo prenda e lo cancelli
-# (= notifica mandata); 3) controlla che le regole blocchino chi non ha il codice. Alla fine pulisce.
+# (= notifica mandata); 3) controlla che le regole blocchino chi non ha il codice, anche su Storage (versioni e
+# catalogo, passo 5). Alla fine pulisce.
 # Col muro acceso (config/accesso, docs/progetto-accesso-su-approvazione.md) l'utente di prova non è approvato, perché
 # entra con un gettone del server e non con Google: la prova controlla che le regole lo tengano fuori, e l'evento lo
 # scrive l'amministratore, così il postino si prova lo stesso. Non scrive mai in accessi/ (niente notifiche a Valerio).
-import json, random, string, sys, time, urllib.request, urllib.error
+import json, random, string, sys, time, urllib.parse, urllib.request, urllib.error
 import os
 from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
@@ -12,6 +13,13 @@ from google.auth import crypt, jwt
 P = 'collezione-euro-24ecd'
 CHIAVE = json.load(open('native/google-services.json'))['client'][0]['api_key'][0]['current_key']
 DOCS = f'https://firestore.googleapis.com/v1/projects/{P}/databases/(default)/documents'
+# versioni e catalogo (passo 5), letti come li legge l'app con l'SDK di Storage
+STORAGE = 'https://firebasestorage.googleapis.com/v0/b/collezione-euro-24ecd.firebasestorage.app/o'
+def da_storage(url, gettone):
+    rq = urllib.request.Request(url, headers={'Authorization': 'Firebase ' + gettone} if gettone else {})
+    try:
+        with urllib.request.urlopen(rq, timeout=20) as r: return r.status
+    except urllib.error.HTTPError as e: return e.code
 SA_FILE = os.environ.get('FIREBASE_SA_FILE', 'keystore/firebase-invio.json')
 SA = json.load(open(SA_FILE))
 # l'amministratore (il service account): le regole per lui non valgono
@@ -101,6 +109,19 @@ s, _, _ = app('GET', f'{DOCS}/collezioni/{cid}/stato/possedute', gettone=None)
 ok(s == 403, f'senza accesso non si legge niente ({s})')
 s, _, _ = app('GET', f'{DOCS}/collezioni/{cid}/eventi/prova{ora}')
 ok(s == 403, f'gli eventi non si leggono dall\'app ({s})')
+
+# Storage (passo 5): versioni e catalogo solo per chi può usare Eurodex, e solo con Google. L'utente di prova entra
+# col gettone del server, quindi deve restare fuori sia col muro spento sia col muro acceso, come chi non ha fatto
+# l'accesso; e nessuno elenca i file. Le regole valgono anche per un file che non c'è: il «no» arriva prima.
+# I «sì» (approvati, Valerio, muro spento) li prova prove/regole-storage.py sugli emulatori.
+for nome in ('rilasci/version.json', 'dati/indice.json'):
+    url = f'{STORAGE}/{urllib.parse.quote(nome, safe="")}?alt=media'
+    s = da_storage(url, GET['t'])
+    ok(s in (401, 403), f'Storage: chi non entra con Google non legge {nome} ({s})')
+    s = da_storage(url, None)
+    ok(s in (401, 403), f'Storage: senza accesso non si legge {nome} ({s})')
+s = da_storage(f'{STORAGE}?prefix=rilasci%2F', GET['t'])
+ok(s in (401, 403), f'Storage: non si elencano i file ({s})')
 
 # il postino: l'evento deve sparire entro poco (vuol dire che la funzione è partita e ha mandato la notifica).
 # Se l'evento non è stato scritto non c'è niente da aspettare (sparirebbe "da solo" e sembrerebbe preso)
