@@ -22,24 +22,15 @@ import androidx.work.WorkerParameters;
 
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 
 /**
  * Controllo in secondo piano (ogni 6 ore circa, solo con internet): se è uscita una versione nuova
  * dell'app (catalogo, foto o app aggiornati) manda UNA notifica per quella versione. Niente altro.
+ * Dalla 1.0.84 version.json e l'indice del catalogo si leggono da Storage con la sessione di questo telefono
+ * (Archivio): senza sessione, o per un account che non può usare Eurodex, non c'è niente da controllare.
  */
 public class ControlloAggiornamenti extends Worker {
-    // I file piccoli che dicono "c'è qualcosa di nuovo" si leggono dalle API di GitHub, sempre aggiornate: la copia
-    // "raw" passa da una cache che per diversi minuti dopo la pubblicazione può dare ancora la versione vecchia.
-    static final String URL_VERSIONE = "https://api.github.com/repos/illvaleee/collezione-euro-download/contents/version.json?ref=main";
-    static final String URL_DATI = "https://api.github.com/repos/illvaleee/collezione-euro-download/contents/dati/indice.json?ref=main";
-    static final String RAW_VERSIONE = "https://raw.githubusercontent.com/illvaleee/collezione-euro-download/main/version.json";
-    static final String RAW_DATI = "https://raw.githubusercontent.com/illvaleee/collezione-euro-download/main/dati/indice.json";
     // struttura dei dati che questa versione sa leggere: deve essere uguale a SCHEMA_DATI in src/catalogo/dati.ts
     static final int SCHEMA_DATI = 1;
     static final String CANALE = "novita"; // importanza alta: la notifica compare in alto sullo schermo (prima era "aggiornamenti", normale)
@@ -62,9 +53,7 @@ public class ControlloAggiornamenti extends Worker {
         Context c = getApplicationContext();
         controllaDati(c);
         try {
-            String tv = leggiFresco(URL_VERSIONE, RAW_VERSIONE);
-            if (tv == null) return Result.success();
-            JSONObject v = new JSONObject(tv);
+            JSONObject v = new JSONObject(Archivio.testo("rilasci/version.json"));
             long nuova = v.optLong("code", 0);
             PackageInfo pi = c.getPackageManager().getPackageInfo(c.getPackageName(), 0);
             long installata = Build.VERSION.SDK_INT >= 28 ? pi.getLongVersionCode() : pi.versionCode;
@@ -77,36 +66,15 @@ public class ControlloAggiornamenti extends Worker {
                 note.isEmpty() ? "Tocca per aggiornare: la collezione resta com'è." : note + " · Tocca per aggiornare."))
                 sp.edit().putLong("notificata", nuova).apply();
         } catch (Exception e) {
-            // nessuna rete o risposta strana: si riprova al prossimo giro, senza disturbare
+            // senza sessione, nessuna rete o risposta strana: si riprova al prossimo giro, senza disturbare
         }
         return Result.success();
-    }
-
-    // prima le API (sempre aggiornate), se non rispondono (limite di richieste) la copia raw
-    static String leggiFresco(String api, String raw) {
-        try { String t = leggi(api); if (t != null) return t; } catch (Exception ignored) {}
-        try { return leggi(raw); } catch (Exception e) { return null; }
-    }
-
-    static String leggi(String url) throws Exception {
-        HttpURLConnection con = (HttpURLConnection) new URL(url + (url.contains("?") ? "&" : "?") + "t=" + System.currentTimeMillis()).openConnection();
-        con.setConnectTimeout(15000); con.setReadTimeout(15000);
-        con.setUseCaches(false);
-        if (url.contains("api.github.com")) con.setRequestProperty("Accept", "application/vnd.github.raw");
-        if (con.getResponseCode() != 200) return null;
-        StringBuilder sb = new StringBuilder();
-        try (BufferedReader r = new BufferedReader(new InputStreamReader(con.getInputStream(), StandardCharsets.UTF_8))) {
-            String l; while ((l = r.readLine()) != null) sb.append(l);
-        }
-        return sb.toString();
     }
 
     // dati nuovi (catalogo, schede, foto) pubblicati da soli: si avvisa, e aprendo l'app si scaricano
     static void controllaDati(Context c) {
         try {
-            String t = leggiFresco(URL_DATI, RAW_DATI);
-            if (t == null) return;
-            JSONObject ix = new JSONObject(t);
+            JSONObject ix = new JSONObject(Archivio.testo("dati/indice.json"));
             avvisaDati(c, ix.optLong("rev", 0), ix.optInt("schema", 1), ix.optString("note", ""));
         } catch (Exception ignored) {}
     }

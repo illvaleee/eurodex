@@ -16,7 +16,8 @@ import {
   persistentSingleTabManager,
   type Firestore,
 } from 'firebase/firestore';
-import { nativo } from '../nativo/plugin';
+import { Nativo, nativo } from '../nativo/plugin';
+import { HOST_EMULATORI, emulatoriNativi } from '../nativo/prove';
 
 /**
  * Collegamento a Firebase con le librerie ufficiali: accesso con l'account Google (Firebase Authentication) e
@@ -34,9 +35,13 @@ let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let db: Firestore | null = null;
 
-/** Nelle prove automatiche (solo nel browser, mai nell'app) ci si collega agli emulatori di Firebase. */
+/**
+ * Nelle prove automatiche ci si collega agli emulatori di Firebase: nel browser con `?emulatori=`, nell'APK solo con
+ * `debug.eurodex.emulatori=1` (da adb), e allora anche la parte nativa va lì (Archivio.java): mai metà e metà.
+ */
 function emulatori(): { auth: string; firestore: [string, number] } | null {
-  if (nativo()) return null;
+  if (nativo())
+    return emulatoriNativi() ? { auth: `http://${HOST_EMULATORI}:9099`, firestore: [HOST_EMULATORI, 8080] } : null;
   const e = new URLSearchParams(location.search).get('emulatori');
   if (!e) return null;
   const [host = 'localhost', portaAuth = '9099', portaDb = '8080'] = e.split(':');
@@ -71,6 +76,8 @@ export async function accediConToken(idToken: string): Promise<User> {
   return r.user;
 }
 
+/** Si esce da tutte e due le sessioni: quella della parte web e quella nativa, che scarica versioni e catalogo. */
 export async function esci(): Promise<void> {
   if (auth) await signOut(auth);
+  if (nativo()) await Nativo.esciNativo().catch(() => undefined);
 }

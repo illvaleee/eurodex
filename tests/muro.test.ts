@@ -68,6 +68,15 @@ describe('muro: l’interruttore letto dal server', () => {
       'http://localhost:8080/v1/projects/collezione-euro-24ecd/databases/(default)/documents/config/accesso',
     );
   });
+
+  it('nell’APK gli emulatori solo con la proprietà di adb, e sempre quelli del telefono simulato', () => {
+    const vero = indirizzoConfig('', true);
+    // senza la proprietà l'indirizzo della pagina non conta mai
+    expect(indirizzoConfig('?emulatori=cattivo.example:1:2', true, false)).toBe(vero);
+    expect(indirizzoConfig('?emulatori=cattivo.example:1:2', true, true)).toBe(
+      'http://10.0.2.2:8080/v1/projects/collezione-euro-24ecd/databases/(default)/documents/config/accesso',
+    );
+  });
 });
 
 describe('muro: nome e telefono nella richiesta', () => {
