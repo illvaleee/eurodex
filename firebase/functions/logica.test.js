@@ -156,10 +156,14 @@ test('amministratore: solo un UID valido', () => {
   assert.equal(L.amministratore({}), null);
 });
 
-test('lo stesso amministratore nei tre posti: regole, funzioni e app', () => {
+test('lo stesso amministratore nei quattro posti: regole di Firestore e di Storage, funzioni e app', () => {
   const regole = fs.readFileSync(path.join(__dirname, '..', 'firestore.rules'), 'utf8');
   const m = regole.match(/request\.auth\.uid == '([^']+)'/);
   assert.ok(m, "nelle regole manca l'UID dell'amministratore");
+  const storage = fs.readFileSync(path.join(__dirname, '..', 'storage.rules'), 'utf8');
+  const s = storage.match(/request\.auth\.uid == '([^']+)'/g);
+  assert.equal(s && s.length, 1, "in storage.rules l'UID dell'amministratore deve comparire una volta");
+  assert.equal(s[0].match(/'([^']+)'/)[1], m[1]);
   const env = fs.readFileSync(path.join(__dirname, '.env'), 'utf8');
   const e = env.match(/^ADMIN_UID=(.*)$/m);
   assert.ok(e, 'in firebase/functions/.env manca ADMIN_UID');
@@ -202,4 +206,76 @@ test("invii indipendenti: se l'argomento dà errore il token parte lo stesso, e 
     L.inviiIndipendenti([invio('argomento', new Error('uno')), invio('token', new Error('due'))]),
     e => e instanceof AggregateError && e.errors.map(x => x.message).join() === 'uno,due',
   );
+});
+
+test('avvisi del passo 5: solo version.json e indice.json fanno partire un avviso', () => {
+  assert.equal(L.tipoNovita('rilasci/version.json'), 'versione');
+  assert.equal(L.tipoNovita('dati/indice.json'), 'dati');
+  for (const altro of ['rilasci/Eurodex-1.0.84.apk', 'dati/catalog-123.json', 'dati/img/a.webp', 'version.json',
+    'dati/indice.json.tmp', 'rilasci/x/version.json', '', undefined]) {
+    assert.equal(L.tipoNovita(altro), null, String(altro));
+  }
+});
+
+test('avvisi del passo 5: gli stessi campi di invia-avviso.py, e niente avviso da un file sbagliato', () => {
+  assert.deepEqual(L.datiNovita('versione', { code: 84, version: '1.0.84', note: 'Novità', apk: 'x.apk' }), {
+    code: '84',
+    version: '1.0.84',
+    note: 'Novità',
+  });
+  assert.deepEqual(L.datiNovita('versione', { code: '85', version: '1.0.85' }), { code: '85', version: '1.0.85', note: '' });
+  assert.deepEqual(L.datiNovita('dati', { rev: 202611301234, schema: 2, note: '3 monete nuove', file: {} }), {
+    tipo: 'dati',
+    rev: '202611301234',
+    schema: '2',
+    note: '3 monete nuove',
+  });
+  assert.equal(L.datiNovita('dati', { rev: 5 }).schema, '1');
+  // testo da fuori: niente caratteri di controllo o di direzione, e lunghezza limitata
+  assert.equal(L.datiNovita('dati', { rev: 5, note: 'a‮b\u0000c' + 'x'.repeat(900) }).note.length, 500);
+  assert.ok(!/[‮\u0000]/.test(L.datiNovita('dati', { rev: 5, note: 'a‮b\u0000c' }).note));
+  for (const [tipo, v] of [
+    ['versione', { version: '1.0.84' }],
+    ['versione', { code: 0, version: '1.0.84' }],
+    ['versione', { code: 84 }],
+    ['versione', { code: 84.5, version: '1.0.84' }],
+    ['dati', { rev: 'ieri' }],
+    ['dati', { rev: -1 }],
+    ['dati', null],
+    ['altro', { rev: 5 }],
+  ]) {
+    assert.equal(L.datiNovita(tipo, v), null, JSON.stringify([tipo, v]));
+  }
+});
+
+test('avvisi del passo 5: ricevono gli stessi account che possono usare Eurodex', () => {
+  const accessi = [
+    { uid: 'approvato1', stato: 'approvato' },
+    { uid: 'attesa1', stato: 'in_attesa' },
+    { uid: 'rifiutato1', stato: 'rifiutato' },
+    { uid: 'tolto1', stato: 'revocato' },
+    { uid: 'senzastato' },
+    null,
+    { stato: 'approvato' },
+  ];
+  // muro acceso: Valerio e gli approvati
+  assert.deepEqual(L.destinatariNovita(accessi, true, 'valerio').sort(), ['approvato1', 'valerio']);
+  // muro spento: tutti tranne gli esclusi
+  assert.deepEqual(L.destinatariNovita(accessi, false, 'valerio').sort(), ['approvato1', 'attesa1', 'senzastato', 'valerio']);
+  // senza amministratore in .env non si inventa niente, e Valerio non compare due volte
+  assert.deepEqual(L.destinatariNovita(accessi, true, null), ['approvato1']);
+  assert.deepEqual(L.destinatariNovita([{ uid: 'valerio', stato: 'approvato' }], true, 'valerio'), ['valerio']);
+  assert.deepEqual(L.destinatariNovita(undefined, true, null), []);
+});
+
+test('avvisi del passo 5: la funzione sta nella regione del bucket e scarica solo i due file', () => {
+  const index = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+  assert.match(index, /exports\.avvisaNovita = onObjectFinalized\(\s*\{ bucket: BUCKET, region: REGIONE_BUCKET/);
+  assert.match(index, /const REGIONE_BUCKET = 'us-central1';/);
+  const google = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'native', 'google-services.json'), 'utf8'));
+  const bucket = index.match(/const BUCKET = '([^']+)'/);
+  assert.equal(bucket && bucket[1], google.project_info.storage_bucket);
+  // il file si scarica solo dopo aver visto che è uno dei due che fanno partire un avviso
+  const corpo = index.slice(index.indexOf('exports.avvisaNovita'));
+  assert.ok(corpo.indexOf('L.tipoNovita(') < corpo.indexOf('.download()'));
 });

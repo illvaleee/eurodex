@@ -7,16 +7,27 @@
 // - avvisaValerio: a ogni richiesta di accesso nuova manda una notifica ai dispositivi di Valerio.
 // - cambioDiStato: quando Valerio rifiuta o toglie l'accesso chiude le sessioni di quell'account (a chi perde
 //   l'accesso arriva una notifica); quando lo approva lo avvisa.
-// (docs/progetto-accesso-su-approvazione.md, §4.3, §4.5, §4.7. La logica sta in logica.js, provata con node --test.)
+// - avvisaNovita: quando un workflow carica su Storage rilasci/version.json (versione nuova) o dati/indice.json
+//   (catalogo nuovo), manda l'avviso ai telefoni degli account che possono usare Eurodex, al posto dell'argomento
+//   pubblico «aggiornamenti».
+// (docs/progetto-accesso-su-approvazione.md, §4.3, §4.5, §4.6, §4.7, §9.3. La logica sta in logica.js, provata con
+// node --test.)
 const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
+const { onObjectFinalized } = require('firebase-functions/v2/storage');
 const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const { FieldValue, Timestamp, getFirestore } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
+const { getStorage } = require('firebase-admin/storage');
 const L = require('./logica');
 
 initializeApp();
 const OPZIONI = { region: 'europe-west1', maxInstances: 3, memory: '256MiB' };
+
+// Il bucket di Storage con versioni e catalogo. La funzione che lo ascolta deve stare nella sua stessa regione
+// (Eventarc). La regione la sceglie Valerio quando crea il bucket (passo 5, domanda 1): si scrive qui prima di unire.
+const BUCKET = 'collezione-euro-24ecd.firebasestorage.app';
+const REGIONE_BUCKET = 'us-central1';
 
 /** I telefoni di un account per le notifiche: i 10 aggiornati più di recente (Cloud Messaging ne accetta al massimo
  * 500 per invio, e un account non ne ha mai tanti davvero: revisione di Claude 2 su #14). */
@@ -117,3 +128,37 @@ exports.cambioDiStato = onDocumentUpdated({ ...OPZIONI, document: 'accessi/{uid}
   if (azioni.includes('chiudi_sessioni')) await getAuth().revokeRefreshTokens(uid);
   if (azioni.includes('avvisa_approvato')) await mandaAiDispositivi(uid, L.messaggioApprovato());
 });
+
+exports.avvisaNovita = onObjectFinalized(
+  { bucket: BUCKET, region: REGIONE_BUCKET, maxInstances: 1, memory: '256MiB' },
+  async ev => {
+    const tipo = L.tipoNovita(ev.data.name);
+    if (!tipo) return;
+    const [contenuto] = await getStorage().bucket(ev.data.bucket).file(ev.data.name).download();
+    let v;
+    try {
+      v = JSON.parse(contenuto.toString('utf8'));
+    } catch {
+      console.error(`avvisaNovita: ${ev.data.name} non è JSON valido, nessun avviso`);
+      return;
+    }
+    const data = L.datiNovita(tipo, v);
+    if (!data) {
+      console.error(`avvisaNovita: ${ev.data.name} senza i campi dell'avviso, nessun avviso`);
+      return;
+    }
+    const db = getFirestore();
+    const [muro, accessi] = await Promise.all([db.doc('config/accesso').get(), db.collection('accessi').get()]);
+    const uids = L.destinatariNovita(
+      accessi.docs.map(d => ({ uid: d.id, stato: d.get('stato') })),
+      muro.exists && muro.get('obbligatorio') === true,
+      L.amministratore(process.env),
+    );
+    // un account per volta, ognuno con i suoi telefoni: se uno dà errore gli altri ricevono lo stesso
+    const esiti = await Promise.allSettled(uids.map(uid => mandaAiDispositivi(uid, { data, android: L.ANDROID })));
+    const ricevuti = esiti.reduce((n, e) => n + (e.status === 'fulfilled' ? e.value : 0), 0);
+    const errori = esiti.filter(e => e.status === 'rejected');
+    console.log(`avvisaNovita ${tipo}: ${ricevuti} telefoni avvisati, ${uids.length} account, ${errori.length} errori`);
+    if (errori.length) throw errori[0].reason;
+  },
+);
