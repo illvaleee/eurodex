@@ -250,6 +250,45 @@ jobs:
         if: always()
         run: rm -rf "$RUNNER_TEMP/segreti"
 
+  # Passo 5 (B1): il catalogo anche su Storage, dove lo leggono le app dalla 1.0.84 (solo chi può usare Eurodex).
+  # Viene dopo "pubblica": l'avviso dal token parte con indice.json su Storage, e così arriva quando la pagina ha già
+  # i dati nuovi (le app fino alla 1.0.83 leggono da lì). Decide da solo se c'è qualcosa da caricare, confrontando
+  # con l'indice che c'è su Storage: anche quando la pagina era già aggiornata (il primo caricamento, con solo_pubblica)
+  storage:
+    needs: pubblica
+    if: ${{ !cancelled() && needs.pubblica.result == 'success' && !inputs.prova }}
+    environment: catalogo
+    permissions:
+      contents: read
+      # il gettone di Google per Storage (google-github-actions/auth), solo in questo job
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BUCKET: collezione-euro-24ecd.firebasestorage.app
+    steps:
+      # i dati appena salvati su main da "pubblica" (il commit controllato da applica-dati.sh)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Accesso a Storage (senza chiavi, un gettone di un'ora che scrive solo in dati/)
+        id: storage
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: projects/274166331144/locations/global/workloadIdentityPools/github/providers/eurodex
+          service_account: eurodex-dati@collezione-euro-24ecd.iam.gserviceaccount.com
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/devstorage.read_write
+          create_credentials_file: false
+          export_environment_variables: false
+
+      - name: Su Storage il catalogo (le foto nuove, catalogo e schede, poi indice.json)
+        env:
+          STORAGE_TOKEN: ${{ steps.storage.outputs.access_token }}
+        run: node scripts/carica-storage.mjs dati "$BUCKET" www/data
+
   notifica:
     needs: pubblica
     if: ${{ needs.pubblica.outputs.pubblicati == 'si' }}

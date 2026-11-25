@@ -450,12 +450,15 @@ jobs:
     environment: pubblicazione
     permissions:
       contents: write
+      # il gettone di Google per Storage (google-github-actions/auth), solo in questo job
+      id-token: write
     outputs:
       version_json: ${{ steps.vj.outputs.sha256 }}
     runs-on: ubuntu-latest
     env:
       N: ${{ needs.controllo.outputs.n }}
       IMPRONTA: ${{ needs.controllo.outputs.impronta }}
+      BUCKET: collezione-euro-24ecd.firebasestorage.app
     steps:
       - name: Numero di versione da controllo (solo cifre)
         run: '[[ "$N" =~ ^(0|[1-9][0-9]{0,8})$ ]] || { echo "::error title=Versione::numero di versione non valido"; exit 1; }'
@@ -506,30 +509,11 @@ jobs:
           path: precedente.apk
           if-no-files-found: ignore
 
-      - name: Pubblica come release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "v1.0.$N" CollezioneEuro.apk -R ${{ github.repository }} --target "$GITHUB_SHA" \
-            --title "Eurodex 1.0.$N" --notes "APK pronto da installare. Scarica CollezioneEuro.apk qui sotto (è Eurodex, il nome del file resta quello vecchio per gli aggiornamenti)."
-
-      - name: Pubblica per l'aggiornamento dall'app
+      - name: version.json della versione nuova (lo stesso per la pagina e per Storage)
         env:
           NOTA_COMMIT: ${{ github.event.head_commit.message }}
-          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
         run: |
-          umask 077
-          mkdir -p "$RUNNER_TEMP/segreti"
-          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/segreti/deploy"
-          # chiave pubblica di github.com come la pubblica GitHub (SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU),
-          # scritta qui invece di fidarsi della prima risposta di ssh-keyscan
-          mkdir -p ~/.ssh && echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' >> ~/.ssh/known_hosts
-          export GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/segreti/deploy -o IdentitiesOnly=yes"
           rm -rf pub && mkdir pub && cp CollezioneEuro.apk pub/ && cp CollezioneEuro.apk pub/CollezioneEuro-1.0.$N.apk
-          git clone -q --depth 1 git@github.com:illvaleee/collezione-euro-download.git /tmp/dl0 || true
-          if [ -f /tmp/dl0/dati/indice.json ]; then cp -r /tmp/dl0/dati pub/dati; else mkdir -p pub/dati && cp www/data/catalog.json www/data/details.json www/data/indice.json pub/dati/ && cp -r www/data/img pub/dati/img; fi
-          ls pub/dati | head
-          cp CollezioneEuro.apk pub/Eurodex.apk
           curl -fsS https://raw.githubusercontent.com/illvaleee/collezione-euro-download/main/version.json -o prima.json || echo '{}' > prima.json
           python3 - "$N" "$(stat -c %s CollezioneEuro.apk)" "$IMPRONTA" > pub/version.json <<'PY'
           import json, sys, datetime
@@ -555,10 +539,58 @@ jobs:
           print(json.dumps({'code': n, 'version': f'1.0.{n}', 'date': datetime.date.today().isoformat(), 'apk': f'CollezioneEuro-1.0.{n}.apk', 'size': size, 'hash': h, 'stat': st, 'note': note}, ensure_ascii=False))
           PY
           cat pub/version.json
+
+      # Storage (passo 5): lì leggono le app dalla 1.0.84, e solo chi può usare Eurodex. Ordine: l'APK, la pagina,
+      # version.json, la release. Così ogni avviso (dal token, che parte con version.json su Storage, o
+      # dall'argomento, che parte dopo questo job) arriva quando la pagina ha già la versione nuova, e la release c'è
+      # solo se tutto il resto è andato (revisione di Claude 3 sul piano, punto 8)
+      - name: Accesso a Storage (senza chiavi, un gettone di un'ora che scrive solo in rilasci/)
+        id: storage
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: projects/274166331144/locations/global/workloadIdentityPools/github/providers/eurodex
+          service_account: eurodex-rilasci@collezione-euro-24ecd.iam.gserviceaccount.com
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/devstorage.read_write
+          create_credentials_file: false
+          export_environment_variables: false
+
+      - name: Su Storage l'APK
+        env:
+          STORAGE_TOKEN: ${{ steps.storage.outputs.access_token }}
+        run: node scripts/carica-storage.mjs apk "$BUCKET" CollezioneEuro.apk pub/version.json
+
+      - name: Pubblica per l'aggiornamento dall'app
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/segreti"
+          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/segreti/deploy"
+          # chiave pubblica di github.com come la pubblica GitHub (SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU),
+          # scritta qui invece di fidarsi della prima risposta di ssh-keyscan
+          mkdir -p ~/.ssh && echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' >> ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/segreti/deploy -o IdentitiesOnly=yes"
+          git clone -q --depth 1 git@github.com:illvaleee/collezione-euro-download.git /tmp/dl0 || true
+          if [ -f /tmp/dl0/dati/indice.json ]; then cp -r /tmp/dl0/dati pub/dati; else mkdir -p pub/dati && cp www/data/catalog.json www/data/details.json www/data/indice.json pub/dati/ && cp -r www/data/img pub/dati/img; fi
+          ls pub/dati | head
+          cp CollezioneEuro.apk pub/Eurodex.apk
           sed -e "s/{N}/$N/" -e "s#{DATA}#$(date -u +%d/%m/%Y)#" scripts/leggimi-download.md > pub/README.md
           cd pub && git init -q -b main && git add . && git -c user.name=collezione-euro -c user.email=collezione-euro@users.noreply.github.com commit -qm "Eurodex 1.0.$N"
           git push -f git@github.com:illvaleee/collezione-euro-download.git main
           rm -f "$RUNNER_TEMP/segreti/deploy"
+
+      - name: Su Storage version.json (le app dalla 1.0.84 vedono la versione nuova)
+        env:
+          STORAGE_TOKEN: ${{ steps.storage.outputs.access_token }}
+        run: node scripts/carica-storage.mjs versione "$BUCKET" CollezioneEuro.apk pub/version.json
+
+      - name: Pubblica come release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v1.0.$N" CollezioneEuro.apk -R ${{ github.repository }} --target "$GITHUB_SHA" \
+            --title "Eurodex 1.0.$N" --notes "APK pronto da installare. Scarica CollezioneEuro.apk qui sotto (è Eurodex, il nome del file resta quello vecchio per gli aggiornamenti)."
 
       - name: Impronta di version.json (la controlla il job della notifica)
         id: vj
