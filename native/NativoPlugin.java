@@ -294,7 +294,7 @@ public class NativoPlugin extends Plugin {
         String p = call.getString("percorso", "");
         if (!"rilasci/version.json".equals(p) && !"dati/indice.json".equals(p)) { call.reject("percorso non previsto"); return; }
         if (Archivio.utente() == null) { call.reject("senza sessione", "SENZA_SESSIONE"); return; }
-        Archivio.riferimento(p).getBytes(1024 * 1024).addOnCompleteListener(t -> {
+        Archivio.riferimento(p).getBytes(Archivio.MAX_TESTO).addOnCompleteListener(t -> {
             if (t.isSuccessful() && t.getResult() != null) {
                 JSObject r = new JSObject();
                 r.put("testo", new String(t.getResult(), StandardCharsets.UTF_8));

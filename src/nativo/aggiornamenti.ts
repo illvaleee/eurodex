@@ -5,10 +5,14 @@ import { meta } from '../collezione/stato';
 import { $ } from '../core/dom';
 import { ErroreArchivio, leggiIndice, nomeApk } from '../core/archivio';
 import { avviso } from '../ui/avvisi';
+import { aggiornaDatiOra } from '../ui/dati-catalogo';
 import { apriFoglio, apriFoglioEAspetta } from '../ui/foglio';
 import { ICONA } from '../ui/icone';
 import { ridisegna } from '../ui/navigazione';
 import { stato, type VersioneDisponibile } from '../ui/stato-ui';
+import { sessioneNativaPronta } from '../sync/sessione-nativa';
+import { sync } from '../sync/sincronizzazione';
+import { ultimoPassoAccesso } from '../viste/finestre';
 import { Nativo, messaggio, nativo } from './plugin';
 import { versioneApp } from './versione';
 
@@ -46,11 +50,24 @@ export async function controllaAggiornamento(
   } catch (e) {
     if (!manuale) return;
     const motivo = e instanceof ErroreArchivio ? e.motivo : 'rete';
-    if (motivo === 'senzaSessione')
-      avviso("Per gli aggiornamenti serve l'accesso con Google: Impostazioni → Salvataggio e sincronizzazione", 6000);
+    if (motivo === 'senzaSessione') await senzaSessione(attesaMax, giaAggiornata);
     else if (motivo === 'negato') avviso('Gli aggiornamenti arrivano solo agli account approvati', DURATA_RISPOSTA);
     else avviso('Controllo non riuscito: sei connesso a internet?', DURATA_RISPOSTA);
   }
+}
+
+/** Controllo a mano senza la sessione nativa. Chi è entrato con Google prima della 1.0.84 e all'avvio ha scelto
+ * «Più tardi» ritrova lo stesso foglio, e con la sessione aperta il controllo si rifà; gli altri sanno dove entrare. */
+async function senzaSessione(attesaMax: number | undefined, giaAggiornata: string): Promise<void> {
+  const account = sync;
+  if (!account) {
+    avviso("Per gli aggiornamenti serve l'accesso con Google: Impostazioni → Salvataggio e sincronizzazione", 6000);
+    return;
+  }
+  await ultimoPassoAccesso(account.email);
+  if (!(await sessioneNativaPronta(account.uid))) return;
+  void aggiornaDatiOra(false);
+  await controllaAggiornamento(true, attesaMax, giaAggiornata);
 }
 
 function contenuto(allAvvio: boolean): TemplateResult {

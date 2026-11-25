@@ -492,11 +492,8 @@ async function azione(nome: string, d: Dati): Promise<void> {
       await azioneAccedi();
       break;
     case 'sessionenativa':
-      // passo 5: con la sessione nativa aperta si guarda subito se ci sono versione o catalogo nuovi
-      if (await azioneSessioneNativa()) {
-        void controllaAggiornamento(false);
-        void aggiornaDatiOra(false);
-      }
+      // passo 5: versione e catalogo li ricontrolla chi ha aperto il foglio, quando si chiude (main.ts, aggiornamenti.ts)
+      await azioneSessioneNativa();
       break;
     case 'syncnome':
       await azioneRinomina();

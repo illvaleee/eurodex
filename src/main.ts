@@ -114,8 +114,11 @@ async function finestreAvvio(aggiornamento: Promise<void>, muro: Promise<boolean
       meta.ultimoPasso = Date.now();
       salva();
       await ultimoPassoAccesso(account.email);
-      // aperta adesso: il controllo della versione fatto all'avvio non aveva la sessione, si rifà
-      if (await sessioneNativaPronta(account.uid)) await controllaAggiornamento(false, 4000);
+      // aperta adesso: i controlli di versione e catalogo fatti all'avvio non avevano la sessione, si rifanno
+      if (await sessioneNativaPronta(account.uid)) {
+        void aggiornaDatiOra(false);
+        await controllaAggiornamento(false, 4000);
+      }
     }
   }
   await aggiornamento;

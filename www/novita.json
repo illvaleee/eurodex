@@ -1,5 +1,19 @@
 [
   {
+    "id": 22,
+    "titolo": "Versioni e catalogo solo per chi usa Eurodex",
+    "data": "2026-11-25",
+    "avviso": "Versioni nuove e catalogo aggiornato arrivano solo a chi è entrato con Google e può usare Eurodex",
+    "nuovo": [
+      "Le versioni nuove e il catalogo aggiornato arrivano dal server di Eurodex, solo a chi è entrato con Google e può usare l'app, e non più da una pagina pubblica",
+      "Se eri già entrato con Google, all'apertura compare «Un ultimo passo»: tocca «Continua» con lo stesso account, una volta sola. Non è una nuova richiesta e la collezione resta com'è",
+      "Se non sei ancora entrato con Google, per ricevere versioni e catalogo nuovi entra da Impostazioni → Salvataggio e sincronizzazione"
+    ],
+    "migliorato": [
+      "L'avviso di una versione nuova arriva direttamente ai telefoni del tuo account"
+    ]
+  },
+  {
     "id": 21,
     "titolo": "Eurodex su invito",
     "data": "2026-11-24",

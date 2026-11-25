@@ -32,8 +32,9 @@ final class Archivio {
     static final Pattern PERCORSO = Pattern.compile(
         "rilasci/version\\.json|rilasci/[A-Za-z0-9._-]{1,80}\\.apk|dati/indice\\.json"
             + "|dati/(catalog|details)(-[0-9]{1,9})?\\.json|dati/img/[0-9a-f]{1,64}\\.webp");
-    // version.json e l'indice sono piccoli; catalogo e schede stanno sotto i 4 MB
-    static final long MAX_TESTO = 8L * 1024 * 1024;
+    // letti in memoria solo version.json e l'indice, che sono piccoli (l'indice circa 25 KB); catalogo, schede, foto e
+    // APK si scaricano direttamente nei file
+    static final long MAX_TESTO = 1024 * 1024;
 
     private static volatile boolean pronto = false;
     private static volatile boolean conEmulatori = false;
