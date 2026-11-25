@@ -184,7 +184,7 @@ describe('Storage: il catalogo', () => {
       indice(1, ['../../segreti.webp']),
       indice(1, ['img/AA.webp']),
       { ...indice(1, []), note: 'vai su https://esempio.it' },
-      { ...indice(1, []), note: 'testogirato' },
+      { ...indice(1, []), note: 'testo\u202egirato' },
       { ...indice(1, []), rev: '1; rm -rf' },
       { ...indice(1, []), schema: 1000 },
     ]) {
