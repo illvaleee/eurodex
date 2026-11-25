@@ -211,8 +211,16 @@ test("invii indipendenti: se l'argomento dà errore il token parte lo stesso, e 
 test('avvisi del passo 5: solo version.json e indice.json fanno partire un avviso', () => {
   assert.equal(L.tipoNovita('rilasci/version.json'), 'versione');
   assert.equal(L.tipoNovita('dati/indice.json'), 'dati');
-  for (const altro of ['rilasci/Eurodex-1.0.84.apk', 'dati/catalog-123.json', 'dati/img/a.webp', 'version.json',
-    'dati/indice.json.tmp', 'rilasci/x/version.json', '', undefined]) {
+  for (const altro of [
+    'rilasci/Eurodex-1.0.84.apk',
+    'dati/catalog-123.json',
+    'dati/img/a.webp',
+    'version.json',
+    'dati/indice.json.tmp',
+    'rilasci/x/version.json',
+    '',
+    undefined,
+  ]) {
     assert.equal(L.tipoNovita(altro), null, String(altro));
   }
 });
@@ -223,7 +231,11 @@ test('avvisi del passo 5: gli stessi campi di invia-avviso.py, e niente avviso d
     version: '1.0.84',
     note: 'Novità',
   });
-  assert.deepEqual(L.datiNovita('versione', { code: '85', version: '1.0.85' }), { code: '85', version: '1.0.85', note: '' });
+  assert.deepEqual(L.datiNovita('versione', { code: '85', version: '1.0.85' }), {
+    code: '85',
+    version: '1.0.85',
+    note: '',
+  });
   assert.deepEqual(L.datiNovita('dati', { rev: 202611301234, schema: 2, note: '3 monete nuove', file: {} }), {
     tipo: 'dati',
     rev: '202611301234',
@@ -261,7 +273,12 @@ test('avvisi del passo 5: ricevono gli stessi account che possono usare Eurodex'
   // muro acceso: Valerio e gli approvati
   assert.deepEqual(L.destinatariNovita(accessi, true, 'valerio').sort(), ['approvato1', 'valerio']);
   // muro spento: tutti tranne gli esclusi
-  assert.deepEqual(L.destinatariNovita(accessi, false, 'valerio').sort(), ['approvato1', 'attesa1', 'senzastato', 'valerio']);
+  assert.deepEqual(L.destinatariNovita(accessi, false, 'valerio').sort(), [
+    'approvato1',
+    'attesa1',
+    'senzastato',
+    'valerio',
+  ]);
   // senza amministratore in .env non si inventa niente, e Valerio non compare due volte
   assert.deepEqual(L.destinatariNovita(accessi, true, null), ['approvato1']);
   assert.deepEqual(L.destinatariNovita([{ uid: 'valerio', stato: 'approvato' }], true, 'valerio'), ['valerio']);
@@ -272,7 +289,9 @@ test('avvisi del passo 5: la funzione sta nella regione del bucket e scarica sol
   const index = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
   assert.match(index, /exports\.avvisaNovita = onObjectFinalized\(\s*\{ bucket: BUCKET, region: REGIONE_BUCKET/);
   assert.match(index, /const REGIONE_BUCKET = 'us-central1';/);
-  const google = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'native', 'google-services.json'), 'utf8'));
+  const google = JSON.parse(
+    fs.readFileSync(path.join(__dirname, '..', '..', 'native', 'google-services.json'), 'utf8'),
+  );
   const bucket = index.match(/const BUCKET = '([^']+)'/);
   assert.equal(bucket && bucket[1], google.project_info.storage_bucket);
   // il file si scarica solo dopo aver visto che è uno dei due che fanno partire un avviso

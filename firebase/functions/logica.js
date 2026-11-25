@@ -184,7 +184,12 @@ function datiNovita(tipo, v) {
     const rev = Number(v.rev);
     if (!Number.isSafeInteger(rev) || rev <= 0) return null;
     const schema = Number(v.schema ?? 1);
-    return { tipo: 'dati', rev: String(rev), schema: String(Number.isSafeInteger(schema) ? schema : 1), note: pulito(v.note, 500) };
+    return {
+      tipo: 'dati',
+      rev: String(rev),
+      schema: String(Number.isSafeInteger(schema) ? schema : 1),
+      note: pulito(v.note, 500),
+    };
   }
   return null;
 }
