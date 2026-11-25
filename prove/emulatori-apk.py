@@ -196,7 +196,9 @@ def controlla(telefono):
     ok(st == 403, f'in attesa, col muro acceso: Storage non dà version.json (HTTP {st})')
     if telefono:
         for nome, porta in PORTE.items():
-            r = sul_telefono(f"printf 'GET / HTTP/1.0\\r\\n\\r\\n' | nc -w 5 {TELEFONO} {porta}")
+            # stdin resta aperto 2 secondi: l'emulatore di Firestore (Java) non risponde a chi chiude subito il suo
+            # lato, e il nc di toybox lo chiude a fine stdin (giro 45679796057, analisi di Claude 1)
+            r = sul_telefono(f"(printf 'GET / HTTP/1.0\\r\\n\\r\\n'; sleep 2) | nc -w 5 {TELEFONO} {porta}")
             ok('HTTP/1.' in r, f'dal telefono simulato {nome} risponde a {TELEFONO}:{porta} ({r.strip()[:60]!r})')
     print(f'RISULTATO emulatori dell\'APK: {"TUTTO OK" if not fallite else f"{len(fallite)} controlli non passati"}',
           flush=True)
