@@ -9,6 +9,8 @@ export interface NativoPlugin {
   /** Il gettone di Google; con lo stesso gettone si apre anche la sessione della parte nativa (`uidNativo`). */
   accediGoogle(o?: {
     silenzioso?: boolean;
+    /** Solo per «Un ultimo passo»: l'account deve essere questo, se no ALTRO_ACCOUNT e nessun accesso. */
+    email?: string;
   }): Promise<{ idToken: string; email?: string; nome?: string; uidNativo?: string }>;
   /** La sessione della parte nativa (passo 5): si tiene solo se è dello stesso account, se no si chiude. */
   sessioneNativa(o: { uid: string }): Promise<{ uid: string }>;

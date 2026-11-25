@@ -71,9 +71,16 @@ export async function utenteSalvato(): Promise<User | null> {
 }
 
 export async function accediConToken(idToken: string): Promise<User> {
-  const { auth: a } = firebase();
-  const r = await signInWithCredential(a, GoogleAuthProvider.credential(idToken));
-  return r.user;
+  try {
+    const { auth: a } = firebase();
+    const r = await signInWithCredential(a, GoogleAuthProvider.credential(idToken));
+    return r.user;
+  } catch (e) {
+    // la parte nativa ha già aperto la sua sessione con lo stesso gettone: senza quella della parte web non si tiene,
+    // così le due sessioni sono sempre dello stesso account (revisione di Claude 2 su #28)
+    if (nativo()) await Nativo.esciNativo().catch(() => undefined);
+    throw e;
+  }
 }
 
 /** Si esce da tutte e due le sessioni: quella della parte web e quella nativa, che scarica versioni e catalogo. */

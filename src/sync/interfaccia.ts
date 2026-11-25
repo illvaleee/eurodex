@@ -167,7 +167,7 @@ export async function azioneAccedi(): Promise<void> {
 export async function azioneSessioneNativa(): Promise<boolean> {
   if (!sync) return false;
   const { uid, email } = sync;
-  const r = await inCorso('[data-act="sessionenativa"]', null, () => apriSessioneNativa(uid));
+  const r = await inCorso('[data-act="sessionenativa"]', null, () => apriSessioneNativa(uid, email));
   if (r === 'ok') {
     if (foglioCon('.nvsheet')) chiudiFoglio();
     avviso('Fatto ✓ Versioni e catalogo nuovi arriveranno da soli', 5000);

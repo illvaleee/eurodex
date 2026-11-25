@@ -186,9 +186,14 @@ public class NativoPlugin extends Plugin {
     // All'app torna solo il "gettone" di Google, che Firebase verifica: nessuna password passa dall'app.
     @PluginMethod
     public void accediGoogle(PluginCall call) {
+        // «Un ultimo passo»: l'account deve essere quello della parte web. Si controlla prima di aprire la sessione
+        // nativa, così un altro account non entra nemmeno, e in Authentication non nasce un utente vuoto (revisione di
+        // Claude 2 su #28). Il controllo dell'uid nella parte web resta come secondo lucchetto
+        String atteso = call.getString("email", "");
         if (Archivio.emulatori()) {
             // prove con gli emulatori: un gettone Google finto, che vale solo per l'emulatore di Auth (sempre lo stesso
             // utente di prova). Niente Credential Manager: sul telefono simulato non c'è un account Google
+            if (altroAccount(atteso, "prova-apk@example.com")) { call.reject("altro account", "ALTRO_ACCOUNT"); return; }
             JSObject o = new JSObject();
             o.put("idToken", GETTONE_PROVA);
             o.put("email", "prova-apk@example.com");
@@ -219,6 +224,7 @@ public class NativoPlugin extends Plugin {
                                 && com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL.equals(c.getType())) {
                                 com.google.android.libraries.identity.googleid.GoogleIdTokenCredential g =
                                     com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.createFrom(c.getData());
+                                if (altroAccount(atteso, g.getId())) { call.reject("altro account", "ALTRO_ACCOUNT"); return; }
                                 JSObject o = new JSObject();
                                 o.put("idToken", g.getIdToken());
                                 o.put("email", g.getId());
@@ -240,6 +246,12 @@ public class NativoPlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Accesso con Google non disponibile: " + e.getMessage());
         }
+    }
+
+    /** Vero se è stato chiesto un account preciso (l'email della parte web) e Google ne ha dato un altro. */
+    static boolean altroAccount(String atteso, String dato) {
+        if (atteso == null || atteso.trim().isEmpty()) return false;
+        return dato == null || !atteso.trim().equalsIgnoreCase(dato.trim());
     }
 
     // lo stesso utente di prova che la CI prepara negli emulatori (prove/emulatori-apk.py): uid ProvaApkApprovato0000000001

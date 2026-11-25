@@ -19,22 +19,29 @@ export async function sessioneNativaPronta(uid: string): Promise<boolean> {
 
 export type EsitoSessione = 'ok' | 'annullato' | 'altroAccount' | 'nessunAccount' | 'errore';
 
-const senzaAccount = (e: unknown): boolean => (e as { code?: unknown } | null)?.code === 'NESSUN_ACCOUNT';
+const codice = (e: unknown): unknown => (e as { code?: unknown } | null)?.code;
+const senzaAccount = (e: unknown): boolean => codice(e) === 'NESSUN_ACCOUNT';
+const altroAccount = (e: unknown): boolean => codice(e) === 'ALTRO_ACCOUNT';
 
-/** Apre la sessione nativa con lo stesso account della parte web (uid). Se Google ne dà un altro, non si tiene. */
-export async function apriSessioneNativa(uid: string): Promise<EsitoSessione> {
+/**
+ * Apre la sessione nativa con lo stesso account della parte web (uid ed email). Un altro account lo rifiuta già la
+ * parte nativa, prima di aprire la sessione; se comunque arriva un uid diverso, la sessione non si tiene.
+ */
+export async function apriSessioneNativa(uid: string, email: string): Promise<EsitoSessione> {
   let r: { uidNativo?: string };
   try {
     try {
       // l'account che ha già dato il permesso all'app: con uno solo nessuna scelta, con più account la scelta
-      r = await Nativo.accediGoogle({ silenzioso: true });
+      r = await Nativo.accediGoogle({ silenzioso: true, email });
     } catch (e) {
-      if (!senzaAccount(e)) throw e;
-      // nessun account che abbia già dato il permesso: la finestra di Google con tutti gli account
-      r = await Nativo.accediGoogle({ silenzioso: false });
+      if (!senzaAccount(e) && !altroAccount(e)) throw e;
+      // nessun account che abbia già dato il permesso, o uno diverso da quello della parte web: la finestra di Google
+      // con tutti gli account, per scegliere quello giusto (senza, «Continua» ridarebbe sempre lo stesso)
+      r = await Nativo.accediGoogle({ silenzioso: false, email });
     }
   } catch (e) {
     if (annullato(e)) return 'annullato';
+    if (altroAccount(e)) return 'altroAccount';
     return senzaAccount(e) ? 'nessunAccount' : 'errore';
   }
   if (r.uidNativo === uid) return 'ok';
