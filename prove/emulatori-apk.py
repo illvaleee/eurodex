@@ -7,9 +7,10 @@ Storage, che girano sul PC della CI e che il telefono raggiunge a 10.0.2.2. Ques
   pronti                         aspetta che i tre emulatori rispondano (al massimo 120 secondi)
   prepara [--numero N --apk F]   come il server vero dopo una pubblicazione: l'utente di prova approvato, uno in attesa
                                  e il muro acceso; con --apk anche rilasci/, con l'APK prima e version.json per ultimo
-  controlla [--telefono]         dal PC l'utente di prova entra col gettone Google finto e legge rilasci/version.json,
-                                 mentre senza accesso o in attesa non legge; con --telefono anche dal telefono simulato
-                                 i tre emulatori rispondono a 10.0.2.2
+  controlla [--telefono]         dal PC l'utente di prova entra col gettone Google finto e legge rilasci/version.json
+                                 e dati/indice.json (che il job carica con scripts/carica-storage.mjs), mentre senza
+                                 accesso o in attesa non legge; con --telefono anche dal telefono simulato i tre
+                                 emulatori rispondono a 10.0.2.2
 
 Si parla solo con gli emulatori, su 127.0.0.1: nessun indirizzo vero di Google, nessuna chiave. Le scritture le fa
 l'amministratore dell'emulatore ("owner"), che sul server vero corrisponde ai workflow. Si usa nella CI, con gli
@@ -188,12 +189,21 @@ def controlla(telefono):
     except ValueError:
         v = {}
     ok(st == 200 and isinstance(v.get('code'), int), f'approvato: legge rilasci/version.json da Storage (HTTP {st})')
+    st, corpo = scarica('dati/indice.json', gettone) if gettone else (0, b'')
+    try:
+        ix = json.loads(corpo) if st == 200 else {}
+    except ValueError:
+        ix = {}
+    ok(st == 200 and str(ix.get('rev', '')).isdigit(),
+       f'approvato: legge dati/indice.json, caricato con carica-storage.mjs (HTTP {st}, rev {ix.get("rev")})')
     st, _ = scarica('rilasci/version.json', None)
     ok(st in (401, 403), f'senza accesso: Storage non dà version.json (HTTP {st})')
     st, uid, gettone2 = entra(IN_ATTESA)
     ok(st == 200 and uid == IN_ATTESA['uid'], f'entra anche l\'utente in attesa (HTTP {st}, uid {uid})')
     st, _ = scarica('rilasci/version.json', gettone2) if gettone2 else (0, b'')
     ok(st == 403, f'in attesa, col muro acceso: Storage non dà version.json (HTTP {st})')
+    st, _ = scarica('dati/indice.json', gettone2) if gettone2 else (0, b'')
+    ok(st == 403, f'in attesa, col muro acceso: Storage non dà nemmeno dati/indice.json (HTTP {st})')
     if telefono:
         for nome, porta in PORTE.items():
             # stdin resta aperto 2 secondi: l'emulatore di Firestore (Java) non risponde a chi chiude subito il suo
