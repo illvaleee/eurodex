@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   controllaIndice,
   esegui,
+  indirizzoApi,
   leggi,
   md5,
   pianoApk,
@@ -264,5 +265,43 @@ describe('Storage: il programma, come lo lanciano i workflow', () => {
     expect(s.oggetti.get('dati/img/aa.webp')?.dati.toString('utf8')).toBe('foto');
     const caricato = await leggi(s.ctx, 'dati/indice.json');
     expect(caricato.dati).toMatchObject({ rev: 202611300623, img: ['img/aa.webp'] });
+  });
+
+  it("con STORAGE_EMULATOR_HOST va all'emulatore su questo PC, e solo lì (prove dell'APK, passo 5)", async () => {
+    expect(indirizzoApi({})).toBe('https://storage.googleapis.com');
+    expect(indirizzoApi({ STORAGE_EMULATOR_HOST: '' })).toBe('https://storage.googleapis.com');
+    expect(indirizzoApi({ STORAGE_EMULATOR_HOST: '127.0.0.1:9199' })).toBe('http://127.0.0.1:9199');
+    expect(indirizzoApi({ STORAGE_EMULATOR_HOST: 'localhost:9199' })).toBe('http://localhost:9199');
+    // nei workflow il gettone è vero: un indirizzo fuori dal PC, o scritto in un altro modo, ferma tutto
+    for (const strano of [
+      '10.0.2.2:9199',
+      'esempio.it:9199',
+      'http://127.0.0.1:9199',
+      '127.0.0.1',
+      '127.0.0.1:9199/x',
+    ]) {
+      expect(() => indirizzoApi({ STORAGE_EMULATOR_HOST: strano })).toThrow(/STORAGE_EMULATOR_HOST/);
+    }
+    const s = storageFinto();
+    const indirizzi: string[] = [];
+    const conIndirizzi = (url: string, opzioni?: RequestInit): Promise<Response> => {
+      indirizzi.push(new URL(url).origin);
+      return s.ctx.fetch(url, opzioni);
+    };
+    const cartella = mkdtempSync(join(tmpdir(), 'emulatore-'));
+    const apk = join(cartella, 'CollezioneEuro.apk');
+    const vj = join(cartella, 'version.json');
+    writeFileSync(apk, 'apk vero');
+    writeFileSync(vj, JSON.stringify({ ...versione(84), size: 8 }));
+    const env = { STORAGE_TOKEN: 'gettone', STORAGE_EMULATOR_HOST: '127.0.0.1:9199' };
+    await principale(['apk', BUCKET, apk, vj], { fetch: conIndirizzi, env, aspetta: () => Promise.resolve() });
+    await principale(['versione', BUCKET, apk, vj], { fetch: conIndirizzi, env, aspetta: () => Promise.resolve() });
+    expect(s.oggetti.has('rilasci/version.json')).toBe(true);
+    expect(new Set(indirizzi)).toEqual(new Set(['http://127.0.0.1:9199']));
+    const fuori = { ...env, STORAGE_EMULATOR_HOST: 'esempio.it:9199' };
+    await expect(principale(['apk', BUCKET, apk, vj], { fetch: conIndirizzi, env: fuori })).rejects.toThrow(
+      /STORAGE_EMULATOR_HOST/,
+    );
+    expect(new Set(indirizzi)).toEqual(new Set(['http://127.0.0.1:9199']));
   });
 });

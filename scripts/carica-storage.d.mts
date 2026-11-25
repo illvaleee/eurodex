@@ -16,9 +16,12 @@ export interface Contesto {
   token: string;
   fetch: (url: string, opzioni?: RequestInit) => Promise<Response>;
   aspetta?: (ms: number) => Promise<void>;
+  /** l'indirizzo di Cloud Storage; senza, quello vero */
+  api?: string;
 }
 
 export declare const md5: (dati: Uint8Array) => string;
+export declare function indirizzoApi(env: Record<string, string | undefined>): string;
 export declare function pianoApk(versione: unknown): Piano;
 export declare function pianoVersione(versione: unknown, precedente: unknown, metaPrecedente: unknown): Piano;
 export declare function controllaIndice(indice: unknown): void;

@@ -23,6 +23,8 @@ import { fileURLToPath } from 'node:url';
 import { nomiPubblicazione } from './nomi-pubblicazione.mjs';
 
 const API = 'https://storage.googleapis.com';
+// solo nelle prove dell'APK con gli emulatori (passo 5, D): l'emulatore di Storage su questo PC, mai fuori
+const EMULATORE = /^(127\.0\.0\.1|localhost):[0-9]{1,5}$/;
 const APK = /^CollezioneEuro-1\.0\.[0-9]{1,9}\.apk$/;
 const IMG = /^img\/[0-9a-f]{1,64}\.webp$/;
 const DATI = /^(catalog|details)-[0-9]{1,14}\.json$/;
@@ -158,7 +160,20 @@ async function richiesta(ctx, url, opzioni) {
   }
 }
 
-const oggetto = (ctx, nome) => `${API}/storage/v1/b/${encodeURIComponent(ctx.bucket)}/o/${encodeURIComponent(nome)}`;
+/**
+ * Dove sta Cloud Storage: quello vero, oppure l'emulatore di Firebase su questo PC con STORAGE_EMULATOR_HOST, come
+ * negli SDK (le prove dell'APK riempiono così lo Storage finto, con gli stessi nomi e lo stesso ordine). Un indirizzo
+ * fuori dal PC non si accetta e lo script si ferma: nei workflow il gettone è vero (revisione di Claude 2).
+ */
+export function indirizzoApi(env) {
+  const e = env.STORAGE_EMULATOR_HOST;
+  if (e === undefined || e === '') return API;
+  if (!EMULATORE.test(e)) throw new Error('STORAGE_EMULATOR_HOST: solo 127.0.0.1 o localhost, con la porta');
+  return `http://${e}`;
+}
+
+const oggetto = (ctx, nome) =>
+  `${ctx.api ?? API}/storage/v1/b/${encodeURIComponent(ctx.bucket)}/o/${encodeURIComponent(nome)}`;
 
 /** Un file già su Storage, come JSON, con i suoi metadati; { dati: null } se non c'è o non si legge come JSON. */
 export async function leggi(ctx, nome) {
@@ -189,7 +204,7 @@ async function carica(ctx, voce, dati) {
   ]);
   const r = await richiesta(
     ctx,
-    `${API}/upload/storage/v1/b/${encodeURIComponent(ctx.bucket)}/o?uploadType=multipart`,
+    `${ctx.api ?? API}/upload/storage/v1/b/${encodeURIComponent(ctx.bucket)}/o?uploadType=multipart`,
     {
       method: 'POST',
       headers: { 'Content-Type': `multipart/related; boundary=${confine}` },
@@ -215,7 +230,7 @@ export async function principale([modo, bucket, ...file], ambiente = { fetch, en
   const token = ambiente.env.STORAGE_TOKEN;
   if (!token) throw new Error('manca STORAGE_TOKEN');
   if (!BUCKET.test(bucket ?? '')) throw new Error('nome del bucket non valido');
-  const ctx = { bucket, token, fetch: ambiente.fetch, aspetta: ambiente.aspetta };
+  const ctx = { bucket, token, fetch: ambiente.fetch, aspetta: ambiente.aspetta, api: indirizzoApi(ambiente.env) };
   if (modo === 'apk' || modo === 'versione') {
     const [apk, versione] = file;
     const v = JSON.parse(readFileSync(versione, 'utf8'));
