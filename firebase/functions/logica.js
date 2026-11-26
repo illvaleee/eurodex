@@ -161,7 +161,53 @@ function amministratore(env) {
   return /^[A-Za-z0-9]{20,64}$/.test(uid) ? uid : null;
 }
 
+// --- Passo 5: avvisi di versione e di catalogo solo a chi può usare Eurodex (§4.5, §4.6, §9.3) ---
+
+/** Quale avviso fa partire un file appena caricato su Storage. Solo questi due: APK, catalogo e foto si caricano
+ * prima, e l'avviso parte quando c'è il file che li annuncia. */
+function tipoNovita(nome) {
+  if (nome === 'rilasci/version.json') return 'versione';
+  if (nome === 'dati/indice.json') return 'dati';
+  return null;
+}
+
+/** I campi dell'avviso, gli stessi che scripts/invia-avviso.py mandava all'argomento «aggiornamenti»: la parte nativa
+ * (AvvisiPush) li legge allo stesso modo. Null se il file non ha quello che serve, e allora non parte niente. */
+function datiNovita(tipo, v) {
+  if (!v || typeof v !== 'object') return null;
+  if (tipo === 'versione') {
+    const code = Number(v.code);
+    if (!Number.isSafeInteger(code) || code <= 0 || typeof v.version !== 'string' || !v.version) return null;
+    return { code: String(code), version: pulito(v.version, 20), note: pulito(v.note, 500) };
+  }
+  if (tipo === 'dati') {
+    const rev = Number(v.rev);
+    if (!Number.isSafeInteger(rev) || rev <= 0) return null;
+    const schema = Number(v.schema ?? 1);
+    return {
+      tipo: 'dati',
+      rev: String(rev),
+      schema: String(Number.isSafeInteger(schema) ? schema : 1),
+      note: pulito(v.note, 500),
+    };
+  }
+  return null;
+}
+
+/** Gli account che ricevono l'avviso: la stessa condizione di puoUsare nelle regole. Valerio sempre; gli approvati;
+ * con il muro spento anche gli altri, tranne i rifiutati e chi ha l'accesso tolto. Chi non ha mai fatto l'accesso non
+ * ha né richiesta né token, quindi non riceve niente (accettato da Valerio il 25/11). */
+function destinatariNovita(accessi, muroAcceso, admin) {
+  const uid = new Set(admin ? [admin] : []);
+  for (const a of accessi || []) {
+    if (!a || !a.uid) continue;
+    if (a.stato === 'approvato' || (!muroAcceso && !['rifiutato', 'revocato'].includes(a.stato))) uid.add(a.uid);
+  }
+  return [...uid];
+}
+
 module.exports = {
+  ANDROID,
   STATI,
   UN_MINUTO,
   pulito,
@@ -177,4 +223,7 @@ module.exports = {
   tokenDaTogliere,
   inviiIndipendenti,
   amministratore,
+  tipoNovita,
+  datiNovita,
+  destinatariNovita,
 };

@@ -1,0 +1,51 @@
+rules_version = '2';
+// Versioni (rilasci/) e catalogo (dati/) di Eurodex su Cloud Storage: li legge solo chi può usare Eurodex, con la
+// stessa condizione di puoUsare in firestore.rules (Valerio, gli approvati, e con il muro spento tutti tranne gli
+// esclusi). Lo stato si legge da Firestore a ogni richiesta (firestore.get), quindi una revoca ha effetto subito.
+// Dall'app non si scrive e non si elenca mai: i file li caricano solo i workflow, con permessi di IAM che non passano
+// da queste regole. L'app scarica con l'SDK, che manda il gettone; mai indirizzi con il token di download
+// (docs/progetto-accesso-su-approvazione.md, §4.6 e §9.2).
+// Limite di Storage: in ogni valutazione al massimo 2 documenti di Firestore diversi (letture ripetute dello stesso
+// documento non contano). Qui sono esattamente accessi/{uid} e config/accesso: un terzo documento chiuderebbe tutto.
+service firebase.storage {
+  match /b/{bucket}/o {
+    // solo account Google, come in firestore.rules
+    function conGoogle() { return request.auth.token.firebase.sign_in_provider == 'google.com'; }
+
+    // Valerio, l'unico amministratore: lo stesso UID di firestore.rules (identifica, non autorizza)
+    function admin() {
+      return request.auth.uid == 'AkUbMzxnXwgjinx9fMaWw6NBAlM2' && request.auth.token.email_verified == true;
+    }
+
+    // il muro: acceso solo se Valerio l'ha acceso dall'app (config/accesso)
+    function accessoObbligatorio() {
+      return firestore.exists(/databases/(default)/documents/config/accesso)
+        && firestore.get(/databases/(default)/documents/config/accesso).data.get('obbligatorio', false) == true;
+    }
+
+    function conRichiesta() { return firestore.exists(/databases/(default)/documents/accessi/$(request.auth.uid)); }
+    function stato() {
+      return firestore.get(/databases/(default)/documents/accessi/$(request.auth.uid)).data.get('stato', '');
+    }
+
+    // muro acceso: solo gli approvati (e Valerio); muro spento: tutti tranne i rifiutati e chi ha l'accesso tolto
+    function puoUsare() {
+      return request.auth != null && conGoogle()
+        && (admin()
+          || (conRichiesta() && stato() == 'approvato')
+          || (!accessoObbligatorio() && !(conRichiesta() && stato() in ['rifiutato', 'revocato'])));
+    }
+
+    // version.json e gli APK delle versioni
+    match /rilasci/{file} {
+      allow get: if puoUsare();
+    }
+
+    // indice, catalogo, schede e foto
+    match /dati/{percorso=**} {
+      allow get: if puoUsare();
+    }
+
+    // tutto il resto, l'elenco dei file e ogni scrittura: no (nessuna regola li permette)
+  }
+}

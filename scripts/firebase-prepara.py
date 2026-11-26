@@ -28,7 +28,8 @@ r = s.post(f'https://serviceusage.googleapis.com/v1/projects/{P}/services:batchE
 print('✓ servizio del database attivato' if r.ok else f'❌ servizio del database: {r.status_code} {r.text[:200]}')
 if r.ok: time.sleep(15)
 servizi = ['firestore.googleapis.com', 'cloudfunctions.googleapis.com', 'cloudbuild.googleapis.com', 'artifactregistry.googleapis.com',
-           'run.googleapis.com', 'eventarc.googleapis.com', 'pubsub.googleapis.com', 'storage.googleapis.com', 'cloudbilling.googleapis.com']
+           'run.googleapis.com', 'eventarc.googleapis.com', 'pubsub.googleapis.com', 'storage.googleapis.com', 'cloudbilling.googleapis.com',
+           'firebasestorage.googleapis.com']
 r = s.post(f'https://serviceusage.googleapis.com/v1/projects/{P}/services:batchEnable', json={'serviceIds': servizi})
 if r.ok:
     print('✓ servizi attivati (o già attivi)')
