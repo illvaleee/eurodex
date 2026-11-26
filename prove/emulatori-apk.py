@@ -207,9 +207,16 @@ def controlla(telefono):
     if telefono:
         for nome, porta in PORTE.items():
             # stdin resta aperto 2 secondi: l'emulatore di Firestore (Java) non risponde a chi chiude subito il suo
-            # lato, e il nc di toybox lo chiude a fine stdin (giro 45679796057, analisi di Claude 1)
-            r = sul_telefono(f"(printf 'GET / HTTP/1.0\\r\\n\\r\\n'; sleep 2) | nc -w 5 {TELEFONO} {porta}")
-            ok('HTTP/1.' in r, f'dal telefono simulato {nome} risponde a {TELEFONO}:{porta} ({r.strip()[:60]!r})')
+            # lato, e il nc di toybox lo chiude a fine stdin (giro 45679796057, analisi di Claude 1).
+            # Appena acceso, il telefono può non avere ancora la rete («Network is unreachable», giro 45754079748):
+            # si riprova fino a 5 volte, a 2 secondi l'una dall'altra, prima di dare ✗
+            for tentativo in range(5):
+                r = sul_telefono(f"(printf 'GET / HTTP/1.0\\r\\n\\r\\n'; sleep 2) | nc -w 5 {TELEFONO} {porta}")
+                if 'HTTP/1.' in r:
+                    break
+                time.sleep(2)
+            ok('HTTP/1.' in r, f'dal telefono simulato {nome} risponde a {TELEFONO}:{porta} ({r.strip()[:60]!r}'
+               + (f', al tentativo {tentativo + 1})' if tentativo else ')'))
     print(f'RISULTATO emulatori dell\'APK: {"TUTTO OK" if not fallite else f"{len(fallite)} controlli non passati"}',
           flush=True)
     return not fallite

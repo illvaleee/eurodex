@@ -218,6 +218,37 @@ def in_front():
     return bool(m and PKG in m.group(0))
 
 
+def selettore_aperto(attesa=10):
+    """Il selettore dei file di Android (DocumentsUI) è in primo piano? Si guarda l'attività in primo piano, come
+    in_front(), e non le posizioni lette dalla pagina, che dopo uno scorrimento possono essere vecchie."""
+    fine = time.time() + attesa
+    while time.time() < fine:
+        out = adb('shell dumpsys activity activities')
+        m = re.search(r'(topResumedActivity|mResumedActivity|ResumedActivity)[^\n]*', out)
+        if m and 'documentsui' in m.group(0).lower():
+            return True
+        time.sleep(1)
+    return False
+
+
+def tocca_fermo(testo, prove=6):
+    """Tocca la voce solo quando la sua posizione è la stessa in due letture di fila. Dopo uno scorrimento Android
+    aggiorna le posizioni della pagina con un po' di ritardo, e un tocco fatto prima cade nel posto sbagliato."""
+    prima = None
+    for _ in range(prove):
+        p = find(testo, maxy='auto')
+        if p and p == prima:
+            adb(f'shell input tap {p[0]} {p[1]}')
+            note(f'tocco "{testo}": ok (posizione ferma {p[0]},{p[1]})')
+            return True
+        prima = p
+        if p is None:
+            swipe_up()
+        time.sleep(1.5)
+    note(f'!! "{testo}" non trovato fermo sullo schermo')
+    return False
+
+
 def launch(wait=10):
     adb(f'shell monkey -p {PKG} -c android.intent.category.LAUNCHER 1')
     time.sleep(wait)
@@ -687,8 +718,18 @@ if EMULATORI:
     back(); tap('Impostazioni', wait=2.5)
 # il riquadro di Google Drive sta più in basso: si scorre piano (senza "lancio") e si aspetta che la pagina sia ferma,
 # perché Android aggiorna le posizioni dei pulsanti solo a pagina ferma (altrimenti il tocco cade sul pulsante sbagliato)
-adb('shell input swipe 540 1700 540 900 1200'); time.sleep(2); dump()
-if tap('Collega Google Drive', wait=4):
+# Con l'utente di prova (modo degli emulatori) le impostazioni sono più lunghe e il pulsante sta ancora più giù: si
+# tocca solo a posizione ferma, e dopo il tocco si controlla che il selettore dei file sia davvero davanti; se no si
+# riprova (giro 45754079748: «tocco ok», ma il selettore non si era aperto)
+adb('shell input swipe 540 1700 540 900 1200'); time.sleep(2)
+aperto = False
+for prova in range(3):
+    if tocca_fermo('Collega Google Drive') and selettore_aperto():
+        aperto = True
+        break
+    note('  (il selettore dei file non si è aperto: riprovo)')
+    ensure_app()
+if aperto:
     shot('selettore_file')
     if not tap('SAVE', exact=True, wait=5, required=False):
         tap('Salva', exact=True, wait=5, required=False)
@@ -696,6 +737,9 @@ if tap('Collega Google Drive', wait=4):
     shot('backup_collegato')
     # come una persona: la conferma si cerca nella scheda (che resta nel punto in cui si era), scorrendo se serve
     check(scorri_finche('Backup automatico attivo'), 'il backup su file scelto funziona (scrittura riuscita)')
+else:
+    shot('selettore_file_non_aperto')
+    check(False, 'il backup su file scelto funziona (scrittura riuscita)')
 shot('impostazioni_2')
 # il pulsante è in fondo alle impostazioni: si scorre fino in fondo, così è davvero sullo schermo
 # (le posizioni che Android legge dalla pagina si aggiornano solo dopo uno scorrimento a vuoto: si scorre più
