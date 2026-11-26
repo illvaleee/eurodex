@@ -197,6 +197,21 @@ def scorri_finche(testo):
     return False
 
 
+def scorri_su_finche(testo, giri=15):
+    """Risale (scorre in su) finché il testo compare sullo schermo, o finché la pagina non si muove più (in cima)."""
+    prima = impronta()
+    for _ in range(giri):
+        if find(testo, maxy='auto'):
+            return True
+        adb('shell input swipe 540 900 540 1500 900')
+        time.sleep(1.5)
+        ora = impronta()
+        if ora == prima:
+            return find(testo, maxy='auto') is not None
+        prima = ora
+    return find(testo, maxy='auto') is not None
+
+
 def fino_in_fondo():
     prima = impronta()
     for _ in range(40):
@@ -695,12 +710,52 @@ shot('cerca')
 ensure_app()
 tap('Impostazioni', wait=2.5)
 shot('impostazioni')
+# il riquadro di Google Drive sta più in basso: si scorre piano (senza "lancio") e si aspetta che la pagina sia ferma,
+# perché Android aggiorna le posizioni dei pulsanti solo a pagina ferma (altrimenti il tocco cade sul pulsante sbagliato)
+# Si tocca solo a posizione ferma, e dopo il tocco si controlla che il selettore dei file sia davvero davanti; se no si
+# riprova (giro 45754079748: «tocco ok», ma il selettore non si era aperto)
+adb('shell input swipe 540 1700 540 900 1200'); time.sleep(2)
+aperto = False
+for prova in range(3):
+    if tocca_fermo('Collega Google Drive') and selettore_aperto():
+        aperto = True
+        break
+    note('  (il selettore dei file non si è aperto: riprovo)')
+    ensure_app()
+if not aperto:
+    # ultima strada: in fondo alla pagina le posizioni tornano giuste (come per «Controlla aggiornamenti», più giù);
+    # da lì si risale piano finché il pulsante si vede, e lo si tocca
+    note('  (provo dal fondo della pagina)')
+    fino_in_fondo(); time.sleep(1.5)
+    for _ in range(12):
+        p = find('Collega Google Drive', maxy='auto')
+        if p:
+            adb(f'shell input tap {p[0]} {p[1]}')
+            note(f'tocco "Collega Google Drive": ok (risalendo dal fondo, {p[0]},{p[1]})')
+            aperto = selettore_aperto()
+            break
+        adb('shell input swipe 540 900 540 1500 900'); time.sleep(1.5)
+if aperto:
+    shot('selettore_file')
+    if not tap('SAVE', exact=True, wait=5, required=False):
+        tap('Salva', exact=True, wait=5, required=False)
+    time.sleep(3)
+    shot('backup_collegato')
+    # come una persona: la conferma si cerca nella scheda (che resta nel punto in cui si era), scorrendo se serve
+    check(scorri_finche('Backup automatico attivo'), 'il backup su file scelto funziona (scrittura riuscita)')
+else:
+    shot('selettore_file_non_aperto')
+    check(False, 'il backup su file scelto funziona (scrittura riuscita)')
 entrato = False
 if EMULATORI:
-    # l'utente di prova entra come farebbe una persona: Impostazioni → «Accedi con Google». Nel modo degli emulatori
-    # l'app non apre la finestra di Google e usa il gettone finto, che vale solo per l'emulatore di Auth (C, passo 5).
-    # L'email compare solo se l'accesso è riuscito tutto: Auth, e la collezione letta e scritta su Firestore
-    if tap('Accedi con Google', exact=True, wait=2, required=False):
+    # L'accesso si prova DOPO il backup, nello stesso foglio. Entrando, il foglio cambia (compare «Accesso a Eurodex» e
+    # il riquadro di Google si allunga) e per un po' Android tiene le posizioni di prima: un tocco sotto quel punto
+    # cadeva nel posto sbagliato (giri 45754079748 e 45758292837: «Collega Google Drive» letto dove sullo schermo c'era
+    # «Accesso approvato da Valerio»). Il riquadro di Google sta subito sopra quello di Drive: si risale fino a lui.
+    # L'utente di prova entra come farebbe una persona: «Accedi con Google». Nel modo degli emulatori l'app non apre
+    # la finestra di Google e usa il gettone finto, che vale solo per l'emulatore di Auth (C, passo 5). L'email
+    # compare solo se l'accesso è riuscito tutto: Auth, e la collezione letta e scritta su Firestore
+    if scorri_su_finche('Accedi con Google') and tocca_fermo('Accedi con Google'):
         fine = time.time() + 45
         while time.time() < fine:
             tutto = testi_schermo()
@@ -714,32 +769,6 @@ if EMULATORI:
             time.sleep(2)
     shot('accesso_di_prova')
     check(entrato, 'accesso di prova con gli emulatori: «Accedi con Google» entra come prova-apk@example.com')
-    # le impostazioni sono un foglio: chiuse e riaperte, ripartono dall'inizio come le aspetta il resto della prova
-    back(); tap('Impostazioni', wait=2.5)
-# il riquadro di Google Drive sta più in basso: si scorre piano (senza "lancio") e si aspetta che la pagina sia ferma,
-# perché Android aggiorna le posizioni dei pulsanti solo a pagina ferma (altrimenti il tocco cade sul pulsante sbagliato)
-# Con l'utente di prova (modo degli emulatori) le impostazioni sono più lunghe e il pulsante sta ancora più giù: si
-# tocca solo a posizione ferma, e dopo il tocco si controlla che il selettore dei file sia davvero davanti; se no si
-# riprova (giro 45754079748: «tocco ok», ma il selettore non si era aperto)
-adb('shell input swipe 540 1700 540 900 1200'); time.sleep(2)
-aperto = False
-for prova in range(3):
-    if tocca_fermo('Collega Google Drive') and selettore_aperto():
-        aperto = True
-        break
-    note('  (il selettore dei file non si è aperto: riprovo)')
-    ensure_app()
-if aperto:
-    shot('selettore_file')
-    if not tap('SAVE', exact=True, wait=5, required=False):
-        tap('Salva', exact=True, wait=5, required=False)
-    time.sleep(3)
-    shot('backup_collegato')
-    # come una persona: la conferma si cerca nella scheda (che resta nel punto in cui si era), scorrendo se serve
-    check(scorri_finche('Backup automatico attivo'), 'il backup su file scelto funziona (scrittura riuscita)')
-else:
-    shot('selettore_file_non_aperto')
-    check(False, 'il backup su file scelto funziona (scrittura riuscita)')
 shot('impostazioni_2')
 # il pulsante è in fondo alle impostazioni: si scorre fino in fondo, così è davvero sullo schermo
 # (le posizioni che Android legge dalla pagina si aggiornano solo dopo uno scorrimento a vuoto: si scorre più
