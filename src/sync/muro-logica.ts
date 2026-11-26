@@ -1,4 +1,5 @@
 import type { StatoAccesso } from './accesso';
+import { HOST_EMULATORI } from '../core/costanti';
 
 /**
  * Il muro dell'accesso su approvazione, solo le decisioni (senza Firebase, così si provano da sole). Il muro vero
@@ -43,8 +44,10 @@ const CHIAVE_PUBBLICA = 'AIzaSyDiDVmvLgHGt9vDgGlzx4C6d5Yf06xXX8o'; // la stessa 
  * Dove leggere l'interruttore: il server vero, oppure l'emulatore di Firestore nelle prove nel browser
  * (`?emulatori=host:portaAuth:portaDb`, come in firebase.ts; mai nell'app installata).
  */
-export function indirizzoConfig(ricerca: string, inApp: boolean): string {
+export function indirizzoConfig(ricerca: string, inApp: boolean, emulatoriApp = false): string {
   const percorso = `projects/${PROGETTO}/databases/(default)/documents/config/accesso`;
+  // l'APK nelle prove con gli emulatori (debug.eurodex.emulatori=1, solo da adb): il Firestore finto del computer
+  if (inApp && emulatoriApp) return `http://${HOST_EMULATORI}:8080/v1/${percorso}`;
   const e = inApp ? null : new URLSearchParams(ricerca).get('emulatori');
   if (e) {
     const [host = 'localhost', , portaDb = '8080'] = e.split(':');

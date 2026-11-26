@@ -3,9 +3,22 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor
 /** Il plugin Android dell'app (native/NativoPlugin.java): ogni metodo qui corrisponde a un @PluginMethod. */
 export interface NativoPlugin {
   infoDispositivo(): Promise<InfoDispositivo>;
-  /** Le prove automatiche via adb: `prove` non mostra il muro, `muro` = 'acceso' lo fa valere acceso qui. */
-  modoProve(): Promise<{ prove: boolean; muro: string }>;
-  accediGoogle(o?: { silenzioso?: boolean }): Promise<{ idToken: string; email?: string; nome?: string }>;
+  /** Le prove automatiche via adb: `prove` non mostra il muro, `muro` = 'acceso' lo fa valere acceso qui,
+   * `emulatori` manda tutto agli emulatori di Firebase del telefono simulato. */
+  modoProve(): Promise<{ prove: boolean; muro: string; emulatori?: boolean }>;
+  /** Il gettone di Google; con lo stesso gettone si apre anche la sessione della parte nativa (`uidNativo`). */
+  accediGoogle(o?: {
+    silenzioso?: boolean;
+    /** Solo per «Un ultimo passo»: l'account deve essere questo, se no ALTRO_ACCOUNT e nessun accesso. */
+    email?: string;
+  }): Promise<{ idToken: string; email?: string; nome?: string; uidNativo?: string }>;
+  /** La sessione della parte nativa (passo 5): si tiene solo se è dello stesso account, se no si chiude. */
+  sessioneNativa(o: { uid: string }): Promise<{ uid: string }>;
+  esciNativo(): Promise<void>;
+  /** version.json o l'indice del catalogo da Storage, come testo (solo per chi può usare Eurodex). */
+  leggiArchivio(o: { percorso: 'rilasci/version.json' | 'dati/indice.json' }): Promise<{ testo: string }>;
+  /** Un file del catalogo da Storage direttamente nei file dell'app (dati/), intero o niente. */
+  scaricaArchivio(o: { percorso: string; file: string }): Promise<void>;
   impostaSync(o: { cid: string; did?: string; nome?: string }): Promise<void>;
   scrivi(o: { testo: string }): Promise<void>;
   /** Con "aperto" il file appena scelto per un ripristino, altrimenti il file del backup collegato. */
@@ -26,7 +39,8 @@ export interface NativoPlugin {
   datiApplicati(o: { rev: number }): Promise<void>;
   puoInstallare(): Promise<{ permesso: boolean }>;
   permessoInstallazione(): Promise<void>;
-  scaricaEInstalla(o: { url: string; size: number }): Promise<void>;
+  /** L'APK della versione nuova da Storage (rilasci/), con il nome scritto in version.json. */
+  scaricaEInstalla(o: { apk: string; size: number }): Promise<void>;
   azioneIniziale(): Promise<{ azione?: string }>;
   barre(o: { colore: string; iconeChiare: boolean }): Promise<void>;
   registra(o: { livello: 'errore' | 'avviso'; testo: string }): Promise<void>;

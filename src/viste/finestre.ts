@@ -262,4 +262,28 @@ export function propostaSincronizzazione(codiceSostituito: boolean): Promise<voi
   );
 }
 
+/**
+ * Passo 5, una volta sola per telefono: chi era già entrato con Google prima della 1.0.84 apre anche la sessione che
+ * scarica versioni e catalogo. Non è una nuova richiesta di accesso.
+ */
+export function ultimoPassoAccesso(email: string): Promise<void> {
+  return apriFoglioEAspetta(
+    html`<div class="nvhead">
+        <div class="nvico">${ICONA.cloud}</div>
+        <h2>Un ultimo passo</h2>
+        <div class="muted">
+          Da questa versione le versioni nuove e il catalogo aggiornato arrivano dal server di Eurodex, solo a chi è
+          entrato con Google. Tocca «Continua» e, se te lo chiede, scegli lo stesso account di
+          prima${email ? html`: <b>${email}</b>` : nothing}.
+        </div>
+      </div>
+      <div class="nvbtn">
+        <button class="btn gbtn" data-act="sessionenativa">${ICONA_GOOGLE} Continua</button
+        ><button class="btn sec2" data-act="close">Più tardi</button>
+        <div class="muted small center">Non è una nuova richiesta di accesso, e la collezione resta com'è.</div>
+      </div>`,
+    'nvsheet',
+  );
+}
+
 export const haCollezione = (): boolean => possedute.size > 0;

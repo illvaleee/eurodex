@@ -1,26 +1,3 @@
-import { API_DOWNLOAD, RAW_DOWNLOAD } from './costanti';
-
-/**
- * Legge un file piccolo pubblicato sulla pagina di download, sempre nella versione più recente.
- * La copia "raw" passa da una cache che per qualche minuto dopo una pubblicazione dà ancora la versione vecchia:
- * si prova prima l'API di GitHub (sempre aggiornata) e la copia raw resta come riserva.
- */
-export async function leggiFresco<T>(nome: string, segnale?: AbortSignal): Promise<T> {
-  try {
-    const r = await fetch(`${API_DOWNLOAD}${nome}?ref=main&t=${Date.now()}`, {
-      cache: 'no-store',
-      headers: { Accept: 'application/vnd.github.raw' },
-      signal: segnale ?? null,
-    });
-    if (r.ok) return (await r.json()) as T;
-  } catch (e) {
-    if (segnale?.aborted) throw e;
-  }
-  const r = await fetch(`${RAW_DOWNLOAD}${nome}?t=${Date.now()}`, { cache: 'no-store', signal: segnale ?? null });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return (await r.json()) as T;
-}
-
 /**
  * Dove finisce il primo oggetto (o elenco) JSON completo di un testo, saltando le parentesi dentro le stringhe;
  * -1 se non ce n'è uno intero.

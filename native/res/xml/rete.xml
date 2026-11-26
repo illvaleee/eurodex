@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Traffico in chiaro solo verso 10.0.2.2, il computer che fa girare il telefono simulato, per le prove con gli
+     emulatori di Firebase (debug.eurodex.emulatori=1: la può mettere solo adb). Senza quella proprietà l'app lì non va
+     mai. Tutto il resto resta solo in https, come prima. -->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>
