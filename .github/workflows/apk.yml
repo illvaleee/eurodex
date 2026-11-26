@@ -243,6 +243,30 @@ jobs:
       - name: Strumenti per le prove (versioni e impronte fisse)
         run: pip install --quiet --require-hashes -r scripts/requisiti-prove.txt
 
+      # Passo 5 (D): versioni e catalogo stanno su Storage e li legge solo chi può usare Eurodex. Il telefono simulato
+      # non ha un account Google vero, quindi l'app (con debug.eurodex.emulatori=1) parla con gli emulatori di Auth,
+      # Firestore e Storage, che girano qui e che il telefono raggiunge a 10.0.2.2. Le regole sono quelle vere.
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Emulatori di Firebase per l'APK, preparati come il server vero dopo una pubblicazione
+        env:
+          N: ${{ needs.controllo.outputs.n }}
+        run: |
+          [[ "$N" =~ ^[0-9]{1,4}$ ]] || { echo "::error::numero di versione non valido"; exit 1; }
+          (cd firebase/strumenti && npm ci --no-audit --no-fund --silent)
+          nohup firebase/strumenti/node_modules/.bin/firebase emulators:start --only auth,firestore,storage \
+            --project collezione-euro-24ecd > "$RUNNER_TEMP/emulatori.log" 2>&1 &
+          python3 prove/emulatori-apk.py pronti || { tail -60 "$RUNNER_TEMP/emulatori.log"; exit 1; }
+          python3 prove/emulatori-apk.py prepara --numero "$N" --apk CollezioneEuro.apk
+          # il catalogo con lo stesso script dei workflow, quindi con gli stessi nomi e indice.json per ultimo (D 2a)
+          STORAGE_EMULATOR_HOST=127.0.0.1:9199 STORAGE_TOKEN=owner \
+            node scripts/carica-storage.mjs dati collezione-euro-24ecd.firebasestorage.app www/data
+
       # ffmpeg (pacchetto firmato di Ubuntu) unisce i pezzi del video della prova; senza, restano separati
       - name: ffmpeg per il video della prova
         run: |
@@ -251,6 +275,9 @@ jobs:
 
       - name: Prova su un telefono Android simulato
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        env:
+          # gli emulatori di Firebase sono accesi (passo qui sopra): l'app parla solo con loro (debug.eurodex.emulatori)
+          EURODEX_EMULATORI: '1'
         with:
           api-level: 34
           target: default
@@ -261,7 +288,11 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           # la prova viene anche registrata in video (scripts/video-prova.sh); l'esito resta quello della prova
-          script: bash scripts/video-prova.sh avvia; python3 scripts/test-emulator.py CollezioneEuro.apk prove-emu; esito=$?; bash scripts/video-prova.sh ferma video-prova; exit $esito
+          script: bash scripts/video-prova.sh avvia; python3 prove/emulatori-apk.py controlla --telefono; emu=$?; python3 scripts/test-emulator.py CollezioneEuro.apk prove-emu; esito=$?; bash scripts/video-prova.sh ferma video-prova; [ "$emu" -eq 0 ] || exit 1; exit $esito
+
+      - name: Diario degli emulatori di Firebase
+        if: failure()
+        run: tail -80 "$RUNNER_TEMP/emulatori.log" || true
 
       - name: Risultati come artifact (li mette sul ramo prove un job a parte, con il permesso di scrittura)
         if: always()

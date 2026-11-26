@@ -197,6 +197,21 @@ def scorri_finche(testo):
     return False
 
 
+def scorri_su_finche(testo, giri=15):
+    """Risale (scorre in su) finché il testo compare sullo schermo, o finché la pagina non si muove più (in cima)."""
+    prima = impronta()
+    for _ in range(giri):
+        if find(testo, maxy='auto'):
+            return True
+        adb('shell input swipe 540 900 540 1500 900')
+        time.sleep(1.5)
+        ora = impronta()
+        if ora == prima:
+            return find(testo, maxy='auto') is not None
+        prima = ora
+    return find(testo, maxy='auto') is not None
+
+
 def fino_in_fondo():
     prima = impronta()
     for _ in range(40):
@@ -216,6 +231,37 @@ def in_front():
     out = adb('shell dumpsys activity activities')
     m = re.search(r'(topResumedActivity|mResumedActivity|ResumedActivity)[^\n]*', out)
     return bool(m and PKG in m.group(0))
+
+
+def selettore_aperto(attesa=10):
+    """Il selettore dei file di Android (DocumentsUI) è in primo piano? Si guarda l'attività in primo piano, come
+    in_front(), e non le posizioni lette dalla pagina, che dopo uno scorrimento possono essere vecchie."""
+    fine = time.time() + attesa
+    while time.time() < fine:
+        out = adb('shell dumpsys activity activities')
+        m = re.search(r'(topResumedActivity|mResumedActivity|ResumedActivity)[^\n]*', out)
+        if m and 'documentsui' in m.group(0).lower():
+            return True
+        time.sleep(1)
+    return False
+
+
+def tocca_fermo(testo, prove=6):
+    """Tocca la voce solo quando la sua posizione è la stessa in due letture di fila. Dopo uno scorrimento Android
+    aggiorna le posizioni della pagina con un po' di ritardo, e un tocco fatto prima cade nel posto sbagliato."""
+    prima = None
+    for _ in range(prove):
+        p = find(testo, maxy='auto')
+        if p and p == prima:
+            adb(f'shell input tap {p[0]} {p[1]}')
+            note(f'tocco "{testo}": ok (posizione ferma {p[0]},{p[1]})')
+            return True
+        prima = p
+        if p is None:
+            swipe_up()
+        time.sleep(1.5)
+    note(f'!! "{testo}" non trovato fermo sullo schermo')
+    return False
 
 
 def launch(wait=10):
@@ -287,6 +333,14 @@ adb('logcat -c')
 # per l'aggiornamento, che partono dalla versione pubblicata, il muro resta spento finché quella non è almeno la 1.0.83
 adb('shell setprop debug.eurodex.prove 1')
 adb('shell setprop debug.eurodex.muro no')
+# passo 5 (D): versioni e catalogo stanno su Storage e li legge solo chi può usare Eurodex. Se il job ha acceso gli
+# emulatori di Firebase (EURODEX_EMULATORI=1, prove/emulatori-apk.py), l'app dalla 1.0.84 parla solo con loro, e c'è
+# un utente di prova già approvato. Senza emulatori l'app parla col server vero e qui non ha una sessione. "0" sempre
+# scritto: la proprietà dura fino al riavvio, e un valore rimasto non deve decidere al posto del job
+EMULATORI = os.environ.get('EURODEX_EMULATORI') == '1'
+adb(f'shell setprop debug.eurodex.emulatori {"1" if EMULATORI else "0"}')
+note('emulatori di Firebase: ' + ('sì (utente di prova prova-apk@example.com)' if EMULATORI
+                                   else 'no (server vero, senza sessione)'))
 
 def senza_strumento(righe):
     """Toglie le righe di un crash di uiautomator, lo strumento della prova che legge lo schermo («FATAL EXCEPTION:
@@ -633,6 +687,12 @@ check(visible('Emissioni'), 'la scheda moneta mostra le emissioni')
 tap('Ingrandisci il lato nazionale', wait=2, required=False)
 shot('zoom')
 back()
+# a volte il tasto indietro arriva mentre lo zoom si sta ancora aprendo, e lo zoom resta davanti a tutto (giro
+# 45760623630: da lì in poi nessuna scheda si trovava più): se si vedono ancora «Gira» e «Chiudi», si chiude col suo
+# pulsante, come farebbe una persona
+if visible('Gira') and visible('Chiudi'):
+    note('  (lo zoom è ancora aperto: tocco «Chiudi»)')
+    tap('Chiudi', exact=True, wait=1.5, required=False)
 swipe_up()
 shot('scheda_tabella')
 # con le stime di valore la tabella delle emissioni è lunga: si scorre finché compaiono le caratteristiche
@@ -658,8 +718,30 @@ tap('Impostazioni', wait=2.5)
 shot('impostazioni')
 # il riquadro di Google Drive sta più in basso: si scorre piano (senza "lancio") e si aspetta che la pagina sia ferma,
 # perché Android aggiorna le posizioni dei pulsanti solo a pagina ferma (altrimenti il tocco cade sul pulsante sbagliato)
-adb('shell input swipe 540 1700 540 900 1200'); time.sleep(2); dump()
-if tap('Collega Google Drive', wait=4):
+# Si tocca solo a posizione ferma, e dopo il tocco si controlla che il selettore dei file sia davvero davanti; se no si
+# riprova (giro 45754079748: «tocco ok», ma il selettore non si era aperto)
+adb('shell input swipe 540 1700 540 900 1200'); time.sleep(2)
+aperto = False
+for prova in range(3):
+    if tocca_fermo('Collega Google Drive') and selettore_aperto():
+        aperto = True
+        break
+    note('  (il selettore dei file non si è aperto: riprovo)')
+    ensure_app()
+if not aperto:
+    # ultima strada: in fondo alla pagina le posizioni tornano giuste (come per «Controlla aggiornamenti», più giù);
+    # da lì si risale piano finché il pulsante si vede, e lo si tocca
+    note('  (provo dal fondo della pagina)')
+    fino_in_fondo(); time.sleep(1.5)
+    for _ in range(12):
+        p = find('Collega Google Drive', maxy='auto')
+        if p:
+            adb(f'shell input tap {p[0]} {p[1]}')
+            note(f'tocco "Collega Google Drive": ok (risalendo dal fondo, {p[0]},{p[1]})')
+            aperto = selettore_aperto()
+            break
+        adb('shell input swipe 540 900 540 1500 900'); time.sleep(1.5)
+if aperto:
     shot('selettore_file')
     if not tap('SAVE', exact=True, wait=5, required=False):
         tap('Salva', exact=True, wait=5, required=False)
@@ -667,6 +749,32 @@ if tap('Collega Google Drive', wait=4):
     shot('backup_collegato')
     # come una persona: la conferma si cerca nella scheda (che resta nel punto in cui si era), scorrendo se serve
     check(scorri_finche('Backup automatico attivo'), 'il backup su file scelto funziona (scrittura riuscita)')
+else:
+    shot('selettore_file_non_aperto')
+    check(False, 'il backup su file scelto funziona (scrittura riuscita)')
+entrato = False
+if EMULATORI:
+    # L'accesso si prova DOPO il backup, nello stesso foglio. Entrando, il foglio cambia (compare «Accesso a Eurodex» e
+    # il riquadro di Google si allunga) e per un po' Android tiene le posizioni di prima: un tocco sotto quel punto
+    # cadeva nel posto sbagliato (giri 45754079748 e 45758292837: «Collega Google Drive» letto dove sullo schermo c'era
+    # «Accesso approvato da Valerio»). Il riquadro di Google sta subito sopra quello di Drive: si risale fino a lui.
+    # L'utente di prova entra come farebbe una persona: «Accedi con Google». Nel modo degli emulatori l'app non apre
+    # la finestra di Google e usa il gettone finto, che vale solo per l'emulatore di Auth (C, passo 5). L'email
+    # compare solo se l'accesso è riuscito tutto: Auth, e la collezione letta e scritta su Firestore
+    if scorri_su_finche('Accedi con Google') and tocca_fermo('Accedi con Google'):
+        fine = time.time() + 45
+        while time.time() < fine:
+            tutto = testi_schermo()
+            if 'prova-apk@example.com' in tutto:
+                entrato = True
+                break
+            no = [r for r in tutto.splitlines() if 'accesso non riuscito' in r or 'non è approvato' in r]
+            if no:
+                note(f'  (l\'app risponde: {no[0][:120]})')
+                break
+            time.sleep(2)
+    shot('accesso_di_prova')
+    check(entrato, 'accesso di prova con gli emulatori: «Accedi con Google» entra come prova-apk@example.com')
 shot('impostazioni_2')
 # il pulsante è in fondo alle impostazioni: si scorre fino in fondo, così è davvero sullo schermo
 # (le posizioni che Android legge dalla pagina si aggiornano solo dopo uno scorrimento a vuoto: si scorre più
@@ -706,6 +814,10 @@ def risposta_al_controllo():
         if 'ultima versione' in tutto or 'nuova versione' in tutto:
             ok = True
             break
+        # senza emulatori (server vero) non c'è una sessione: dalla 1.0.84 la risposta giusta è «serve l'accesso»
+        if not EMULATORI and "serve l'accesso con google" in tutto:
+            ok = True
+            break
         if 'novità delle versioni' in tutto and 'controlla aggiornamenti' not in tutto and 'controllo in corso' not in tutto:
             novita = True
             break
@@ -733,8 +845,22 @@ if visti:
     note(f'  (messaggi visti durante il controllo: {sorted(visti)})')
 shot('aggiornamenti')
 note(f'  (durante il controllo il pulsante mostra "Controllo in corso…": {"sì" if attesa_vista else "non visto (risposta immediata?)"})')
-check(ok, 'il controllo aggiornamenti risponde (legge la versione pubblicata)')
+check(ok, 'il controllo aggiornamenti risponde ' + ('(legge rilasci/version.json dallo Storage degli emulatori)'
+                                                     if EMULATORI else '(senza sessione: dice che serve l\'accesso)'))
 shot('impostazioni_3')
+if entrato:
+    # e poi fuori, con «Esci dall'account»: il resto della prova (il muro acceso al 7b, il backup di Android al 9) è
+    # fatto per un telefono senza sessione. Il pulsante sta più in alto: le impostazioni di nuovo dall'inizio
+    back(); tap('Impostazioni', wait=2.5)
+    uscito = False
+    if tap("Esci dall'account su questo dispositivo", exact=True, wait=2, required=False) and \
+            tap('Esci', exact=True, wait=3, required=False):
+        # riaperte, le impostazioni si ridisegnano tutte: senza sessione «Account Google» ha «consigliato», con la
+        # sessione «attivo». La voce si cerca scorrendo la pagina, come nel resto della prova
+        back(); tap('Impostazioni', wait=2.5)
+        uscito = scorri_finche('consigliato')
+    shot('uscita_di_prova')
+    check(uscito, "uscita dall'account di prova: dopo «Esci», «Account Google» torna «consigliato»")
 
 # 6b. catalogo in PDF: il file si crea e si apre la condivisione di Android (salva su Drive, manda su WhatsApp…)
 if tap('Crea il PDF del catalogo', exact=True, wait=6, required=False):
