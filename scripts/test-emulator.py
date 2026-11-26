@@ -687,6 +687,12 @@ check(visible('Emissioni'), 'la scheda moneta mostra le emissioni')
 tap('Ingrandisci il lato nazionale', wait=2, required=False)
 shot('zoom')
 back()
+# a volte il tasto indietro arriva mentre lo zoom si sta ancora aprendo, e lo zoom resta davanti a tutto (giro
+# 45760623630: da lì in poi nessuna scheda si trovava più): se si vedono ancora «Gira» e «Chiudi», si chiude col suo
+# pulsante, come farebbe una persona
+if visible('Gira') and visible('Chiudi'):
+    note('  (lo zoom è ancora aperto: tocco «Chiudi»)')
+    tap('Chiudi', exact=True, wait=1.5, required=False)
 swipe_up()
 shot('scheda_tabella')
 # con le stime di valore la tabella delle emissioni è lunga: si scorre finché compaiono le caratteristiche
