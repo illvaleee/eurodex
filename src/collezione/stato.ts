@@ -68,6 +68,8 @@ export interface Meta {
   benvenuto?: number;
   chiestoAvvisi?: number;
   propostaSync?: number;
+  /** Quando si è chiesto l'ultimo passo dell'accesso (sessione nativa, passo 5): al massimo una volta al giorno. */
+  ultimoPasso?: number;
 }
 
 /** Una voce dello storico: [secondi, aggiunta o tolta, chiave del pezzo, "d" = solo data | "@dispositivo"]. */
