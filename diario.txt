@@ -1,0 +1,76 @@
+[00:00] Esploratore su it.collezione.euro · schermo 1080×2400 a 420 dpi · 30 minuti di esplorazione
+[02:06] Apertura a freddo: 938 ms
+[02:11]   (la prima schermata non è ancora pronta: aspetto)
+[02:31] ▸ schermata nuova: «Eurodex» (19 cose da provare a prima vista)
+[03:15]   spunto «Solo mancanti» → cambia qualcosa qui
+[03:32]   tocco «Impostazioni» → «Scheda»
+[03:46]   tocco «Statistiche ›» → «Statistiche»
+[03:50] ▸ schermata nuova: «Statistiche» (20 cose da provare a prima vista)
+[04:17]   tocco «Indietro» → «Eurodex»
+[04:22]   tocco «Novità 3monete aggiunte di recente al ca» → «Novità»
+[04:25] ▸ schermata nuova: «Novità» (27 cose da provare a prima vista)
+[04:52]   tocco «Indietro» → «Eurodex»
+[04:59]   tocco «1c 0 0/1.065» → «1 cent»
+[05:02] ▸ schermata nuova: «1 cent» (33 cose da provare a prima vista)
+[06:18]   tocco «Indietro» → «Eurodex»
+[06:42]   tocco «Ne mancano 9.837» → «Statistiche»
+[06:47]   spunto «Solo mancanti» → cambia qualcosa qui
+[07:03]   tocco «Impostazioni» → «Scheda»
+[07:17]   tocco «Storico delle modifiche» → «Storico»
+[07:20] ▸ schermata nuova: «Storico» (9 cose da provare a prima vista)
+[07:47]   tocco «Indietro» → «Statistiche»
+[07:53]   tocco «Collezione» → «Eurodex»
+[08:04]   tocco «PAESI» → «Mancanti»
+[08:08] ▸ schermata nuova: «Mancanti» (39 cose da provare a prima vista)
+[10:12]   tocco «Impostazioni» → «Scheda»
+[10:34]   spunto «🇦🇩 Andorra» → cambia qualcosa qui
+[10:40]   spunto «🇦🇹 Austria» → «Mancanti»
+[10:43] ▸ schermata nuova: «Mancanti» (43 cose da provare a prima vista)
+[12:23]   tocco «Impostazioni» → «Scheda»
+[12:38]   spunto «🇦🇩 Andorra» → «Mancanti»
+[12:45]   spunto «🇧🇪 Belgio» → «Mancanti»
+[12:48] ▸ schermata nuova: «Mancanti» (42 cose da provare a prima vista)
+[15:01]   tocco «Impostazioni» → «Scheda»
+[15:17]   spunto «🇦🇹 Austria» → «Mancanti»
+[15:29]   spunto «🇧🇪 Belgio» → «Mancanti»
+[15:41]   spunto «🇧🇬 Bulgaria» → «Mancanti»
+[15:44] ▸ schermata nuova: «Mancanti» (43 cose da provare a prima vista)
+[16:14]   tocco «Impostazioni» → «Scheda»
+[16:29]   spunto «🇧🇪 Belgio» → «Mancanti»
+[16:35]   spunto «🇨🇾 Cipro» → «Mancanti»
+[16:38] ▸ schermata nuova: «Mancanti» (42 cose da provare a prima vista)
+[17:37]   tocco «Impostazioni» → «Scheda»
+[17:52]   spunto «🇧🇬 Bulgaria» → «Mancanti»
+[18:04]   spunto «🇨🇾 Cipro» → «Mancanti»
+[18:16]   spunto «🇭🇷 Croazia» → «Mancanti»
+[18:19] ▸ schermata nuova: «Mancanti» (48 cose da provare a prima vista)
+[19:03]   tocco «Impostazioni» → «Scheda»
+[19:18]   spunto «🇨🇾 Cipro» → «Mancanti»
+[19:24]   spunto «🇪🇪 Estonia» → «Mancanti»
+[19:30]   spunto «🇭🇷 Croazia» → cambia qualcosa qui
+[19:36]   spunto «🇪🇪 Estonia» → cambia qualcosa qui
+[19:42]   spunto «🇫🇮 Finlandia» → «Mancanti»
+[19:46] ▸ schermata nuova: «Mancanti» (48 cose da provare a prima vista)
+[22:16]   tocco «Impostazioni» → «Scheda»
+[22:32]   spunto «🇪🇪 Estonia» → «Mancanti»
+[22:38]   spunto «🇫🇷 Francia» → «Mancanti»
+[22:42] ▸ schermata nuova: «Mancanti» (42 cose da provare a prima vista)
+[25:06]   tocco «Impostazioni» → «Scheda»
+[25:22]   spunto «🇫🇮 Finlandia» → «Mancanti»
+[25:35]   spunto «🇫🇷 Francia» → «Mancanti»
+[25:50]   spunto «🇩🇪 Germania» → «Mancanti»
+[25:54] ▸ schermata nuova: «Mancanti» (44 cose da provare a prima vista)
+[31:56]   (pagina lunga: in fondo con gli scorrimenti veloci, 135 in tutto)
+[33:22]   tocco «Impostazioni» → «Scheda»
+[33:22] Esplorazione: 14 schermate, 58 azioni, 5 modifiche, 12 senza effetto visibile, 0 verso altre app · tempo finito
+[33:22] — Dati dopo chiusura e riapertura —
+[33:24]   (alla fine dell'esplorazione non ero in una schermata nota: controllo la schermata iniziale)
+[34:42]   (nessun numero nella schermata iniziale, nemmeno aspettando: salto · in primo piano it.collezione.euro, testi ['Eurodex', 'Scheda', 'Stessa collezione su telefono e tablet', 'Usi Eurodex su più dispositivi? Accedi con il tuo account Google. Dove accedi con lo stesso account la collezione è la stessa, e ogni modifica arriva subito sugli altri con una notifica.', 'Accedi con Google', 'Non ora', 'Puoi farlo quando vuoi da Impostazioni → Salvataggio e sincronizzazione.'], foto 015_iniziale_senza_numeri.png)
+[34:42] — Giro con tema scuro —
+[36:44] — Giro con carattere grande —
+[38:38] — Giro con schermo piccolo —
+[40:18] — Giro con tablet —
+[42:20] — Giro con telefono ruotato —
+[44:28] — Stress test: 3000 tocchi, scorrimenti e gesti a caso, 8 al secondo (monkey di Android) —
+[46:19]   nessun crash né blocco
+[46:22] FINE: 0 errori, 0 avvisi · dettagli in resoconto.md
