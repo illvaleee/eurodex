@@ -1,8 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
-import { RAW_DOWNLOAD } from '../core/costanti';
 import { avvisa } from '../core/errori';
-import { leggiFresco } from '../core/rete';
+import { leggiIndice, scaricaInFile } from '../core/archivio';
 import { nativo } from '../nativo/plugin';
 import type { CatalogoGrezzo, Schede } from './tipi';
 import { nomeFileDatiValido, nomeFotoValido, revisioneValida } from './nomi-dati';
@@ -15,7 +14,6 @@ import { nomeFileDatiValido, nomeFotoValido, revisioneValida } from './nomi-dati
 
 /** Struttura dei dati che questa versione sa leggere (vedi scripts/indice-dati.mjs). */
 export const SCHEMA_DATI = 1;
-const URL_DATI = `${RAW_DOWNLOAD}dati/`;
 
 export interface IndiceDati {
   rev: number;
@@ -84,30 +82,11 @@ async function baseDati(): Promise<string> {
   }
 }
 
-function base64(b: Blob): Promise<string> {
-  return new Promise((ok, ko) => {
-    const r = new FileReader();
-    r.onload = () => {
-      ok(typeof r.result === 'string' ? (r.result.split(',')[1] ?? '') : '');
-    };
-    r.onerror = () => {
-      ko(r.error ?? new Error('lettura'));
-    };
-    r.readAsDataURL(b);
-  });
-}
-
+/** Una foto da Storage direttamente nei file dell'app (dati/img/…), intera o niente. */
 async function scaricaFoto(nome: string): Promise<boolean> {
   if (!nomeFotoValido(nome)) return false;
   try {
-    const f = await fetch(URL_DATI + nome);
-    if (!f.ok) return false;
-    await Filesystem.writeFile({
-      path: `dati/${nome}`,
-      data: await base64(await f.blob()),
-      directory: Directory.Data,
-      recursive: true,
-    });
+    await scaricaInFile(`dati/${nome}`, `dati/${nome}`);
     return true;
   } catch {
     return false;
@@ -148,7 +127,8 @@ export async function scaricaDatiNuovi(): Promise<EsitoAggiornamento> {
   try {
     let ix: IndiceDati;
     try {
-      ix = await leggiFresco<IndiceDati>('dati/indice.json');
+      // da Storage, con la sessione della parte nativa: senza sessione, o per chi non può usare Eurodex, niente
+      ix = await leggiIndice<IndiceDati>('dati/indice.json');
     } catch {
       return { tipo: 'niente' };
     }
@@ -172,14 +152,15 @@ export async function scaricaDatiNuovi(): Promise<EsitoAggiornamento> {
     // (l'indice arriva da fuori: il campo file potrebbe anche mancare, qualunque cosa dica il tipo)
     const nomi = (ix as Partial<IndiceDati>).file;
     if (!nomi || !nomeFileDatiValido(nomi.catalogo) || !nomeFileDatiValido(nomi.schede)) return { tipo: 'niente' };
-    const [rc, rs] = await Promise.all([
-      fetch(`${URL_DATI}${ix.file.catalogo}?r=${ix.rev}`),
-      fetch(`${URL_DATI}${ix.file.schede}?r=${ix.rev}`),
+    // catalogo e schede scaricati subito nei file nuovi, col numero dei dati: quelli in uso non si toccano, e solo lo
+    // stato scritto per ultimo li indica (se l'app si chiude a metà restano in uso i dati di prima, interi)
+    const nomeCat = `catalogo-${String(ix.rev)}.json`;
+    const nomeSch = `schede-${String(ix.rev)}.json`;
+    await Promise.all([
+      scaricaInFile(`dati/${ix.file.catalogo}`, `dati/${nomeCat}`),
+      scaricaInFile(`dati/${ix.file.schede}`, `dati/${nomeSch}`),
     ]);
-    if (!rc.ok || !rs.ok) return { tipo: 'niente' };
-    const testoCatalogo = await rc.text();
-    const testoSchede = await rs.text();
-    const cat = JSON.parse(testoCatalogo) as CatalogoGrezzo;
+    const cat = await leggiDato<CatalogoGrezzo>(nomeCat);
     if (!cat.types.length) return { tipo: 'niente' };
     // 2) foto che mancano: quelle che non sono né nell'APK né già scaricate (4 alla volta)
     const nelNuovo = new Set((ix.img ?? []).filter(nomeFotoValido));
@@ -192,13 +173,8 @@ export async function scaricaDatiNuovi(): Promise<EsitoAggiornamento> {
         if (esiti[k]) prese.add(x);
       });
     }
-    // 3) catalogo e schede in file nuovi (con il numero dei dati), e per ultimo lo stato che li indica: se l'app si
-    //    chiude a metà, restano in uso i dati di prima, interi
+    // 3) per ultimo lo stato, che indica i file nuovi
     const precedente = await leggiDato<StatoDati>('stato.json').catch(() => null);
-    const nomeCat = `catalogo-${String(ix.rev)}.json`;
-    const nomeSch = `schede-${String(ix.rev)}.json`;
-    await scriviDato(nomeCat, testoCatalogo);
-    await scriviDato(nomeSch, testoSchede);
     const st: StatoDati = {
       rev: ix.rev,
       schema: ix.schema,

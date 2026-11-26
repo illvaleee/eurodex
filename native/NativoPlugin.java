@@ -28,9 +28,12 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Pattern;
+
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.auth.GoogleAuthProvider;
 
 /**
  * Funzioni native di Eurodex:
@@ -47,6 +50,11 @@ public class NativoPlugin extends Plugin {
     @Override
     public void load() {
         istanza = this; inPrimoPiano = true;
+        // Auth e Storage nativi: gli emulatori (solo con debug.eurodex.emulatori=1, da adb) vanno impostati prima di tutto.
+        // La parte web gira su https://localhost e gli emulatori sono in http: solo in quel modo la WebView li può
+        // chiamare (il traffico in chiaro è permesso solo verso 10.0.2.2, res/xml/rete.xml)
+        Archivio.prepara();
+        if (Archivio.emulatori()) try { getActivity().runOnUiThread(() -> { try { getBridge().getWebView().getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW); } catch (Exception ignored) {} }); } catch (Exception ignored) {}
         // niente effetto "elastico" di Android a inizio/fine pagina: stirava tutta la pagina, comprese la barra delle
         // schede in basso e l'intestazione, che devono restare ferme
         try { getActivity().runOnUiThread(() -> { try { getBridge().getWebView().setOverScrollMode(android.view.View.OVER_SCROLL_NEVER); } catch (Exception ignored) {} }); } catch (Exception ignored) {}
@@ -134,17 +142,19 @@ public class NativoPlugin extends Plugin {
     /**
      * Le prove automatiche (telefono simulato della CI, o un telefono collegato con adb) lo dicono con due proprietà
      * di sistema, che scrive solo la shell di adb: debug.eurodex.prove=1 non mostra la schermata del muro (indirizzi
-     * e regole restano quelli veri), debug.eurodex.muro=acceso fa valere il muro acceso solo su questo telefono.
+     * e regole restano quelli veri), debug.eurodex.muro=acceso fa valere il muro acceso solo su questo telefono,
+     * debug.eurodex.emulatori=1 manda tutto agli emulatori di Firebase del telefono simulato (Archivio).
      */
     @PluginMethod
     public void modoProve(PluginCall call) {
         JSObject r = new JSObject();
         r.put("prove", "1".equals(proprieta("debug.eurodex.prove")));
         r.put("muro", proprieta("debug.eurodex.muro"));
+        r.put("emulatori", Archivio.emulatori());
         call.resolve(r);
     }
 
-    private static String proprieta(String nome) {
+    static String proprieta(String nome) {
         try {
             Object v = Class.forName("android.os.SystemProperties").getMethod("get", String.class).invoke(null, nome);
             return v instanceof String ? ((String) v).trim() : "";
@@ -176,6 +186,21 @@ public class NativoPlugin extends Plugin {
     // All'app torna solo il "gettone" di Google, che Firebase verifica: nessuna password passa dall'app.
     @PluginMethod
     public void accediGoogle(PluginCall call) {
+        // «Un ultimo passo»: l'account deve essere quello della parte web. Si controlla prima di aprire la sessione
+        // nativa, così un altro account non entra nemmeno, e in Authentication non nasce un utente vuoto (revisione di
+        // Claude 2 su #28). Il controllo dell'uid nella parte web resta come secondo lucchetto
+        String atteso = call.getString("email", "");
+        if (Archivio.emulatori()) {
+            // prove con gli emulatori: un gettone Google finto, che vale solo per l'emulatore di Auth (sempre lo stesso
+            // utente di prova). Niente Credential Manager: sul telefono simulato non c'è un account Google
+            if (altroAccount(atteso, "prova-apk@example.com")) { call.reject("altro account", "ALTRO_ACCOUNT"); return; }
+            JSObject o = new JSObject();
+            o.put("idToken", GETTONE_PROVA);
+            o.put("email", "prova-apk@example.com");
+            o.put("nome", "Prova APK");
+            accediAncheQui(GETTONE_PROVA, o, call);
+            return;
+        }
         int idRes = getContext().getResources().getIdentifier("default_web_client_id", "string", getContext().getPackageName());
         if (idRes == 0) { call.reject("L'accesso con Google non è ancora attivo"); return; }
         String web = getContext().getString(idRes);
@@ -199,11 +224,12 @@ public class NativoPlugin extends Plugin {
                                 && com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL.equals(c.getType())) {
                                 com.google.android.libraries.identity.googleid.GoogleIdTokenCredential g =
                                     com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.createFrom(c.getData());
+                                if (altroAccount(atteso, g.getId())) { call.reject("altro account", "ALTRO_ACCOUNT"); return; }
                                 JSObject o = new JSObject();
                                 o.put("idToken", g.getIdToken());
                                 o.put("email", g.getId());
                                 o.put("nome", g.getDisplayName() == null ? "" : g.getDisplayName());
-                                call.resolve(o);
+                                accediAncheQui(g.getIdToken(), o, call);
                                 return;
                             }
                         } catch (Exception ignored) {}
@@ -220,6 +246,101 @@ public class NativoPlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Accesso con Google non disponibile: " + e.getMessage());
         }
+    }
+
+    /** Vero se è stato chiesto un account preciso (l'email della parte web) e Google ne ha dato un altro. */
+    static boolean altroAccount(String atteso, String dato) {
+        if (atteso == null || atteso.trim().isEmpty()) return false;
+        return dato == null || !atteso.trim().equalsIgnoreCase(dato.trim());
+    }
+
+    // lo stesso utente di prova che la CI prepara negli emulatori (prove/emulatori-apk.py): uid ProvaApkApprovato0000000001
+    static final String GETTONE_PROVA = "{\"sub\":\"prova-apk-1\",\"email\":\"prova-apk@example.com\",\"email_verified\":true,\"name\":\"Prova APK\"}";
+
+    /**
+     * Lo stesso gettone Google apre anche la sessione di Firebase della parte nativa, quella che usano i lavori in
+     * background per scaricare versioni e catalogo da Storage (§9.4). Se non riesce (per esempio senza rete) l'accesso
+     * della parte web va avanti lo stesso: la sessione nativa si riprende dopo (sessioneNativa).
+     */
+    private void accediAncheQui(String gettone, JSObject o, PluginCall call) {
+        try {
+            FirebaseAuth.getInstance().signInWithCredential(GoogleAuthProvider.getCredential(gettone, null)).addOnCompleteListener(t -> {
+                FirebaseUser u = t.isSuccessful() && t.getResult() != null ? t.getResult().getUser() : null;
+                o.put("uidNativo", u == null ? "" : u.getUid());
+                call.resolve(o);
+            });
+        } catch (Exception e) {
+            o.put("uidNativo", "");
+            call.resolve(o);
+        }
+    }
+
+    /**
+     * La sessione nativa si tiene solo se è dello stesso account della parte web (uid): se no si chiude. Restituisce
+     * l'uid della sessione nativa, vuoto se non c'è.
+     */
+    @PluginMethod
+    public void sessioneNativa(PluginCall call) {
+        String uid = call.getString("uid", "");
+        FirebaseUser u = Archivio.utente();
+        if (u != null && uid != null && !uid.isEmpty() && !uid.equals(u.getUid())) {
+            FirebaseAuth.getInstance().signOut();
+            u = null;
+        }
+        JSObject r = new JSObject();
+        r.put("uid", u == null ? "" : u.getUid());
+        call.resolve(r);
+    }
+
+    /** «Esci»: la sessione nativa si chiude insieme a quella della parte web. */
+    @PluginMethod
+    public void esciNativo(PluginCall call) {
+        Archivio.prepara();
+        try { FirebaseAuth.getInstance().signOut(); } catch (Exception ignored) {}
+        call.resolve();
+    }
+
+    /** version.json o l'indice del catalogo, da Storage, come testo. */
+    @PluginMethod
+    public void leggiArchivio(PluginCall call) {
+        String p = call.getString("percorso", "");
+        if (!"rilasci/version.json".equals(p) && !"dati/indice.json".equals(p)) { call.reject("percorso non previsto"); return; }
+        if (Archivio.utente() == null) { call.reject("senza sessione", "SENZA_SESSIONE"); return; }
+        Archivio.riferimento(p).getBytes(Archivio.MAX_TESTO).addOnCompleteListener(t -> {
+            if (t.isSuccessful() && t.getResult() != null) {
+                JSObject r = new JSObject();
+                r.put("testo", new String(t.getResult(), StandardCharsets.UTF_8));
+                call.resolve(r);
+            } else {
+                Exception e = t.getException();
+                call.reject(e == null ? "lettura non riuscita" : String.valueOf(e.getMessage()), Archivio.codice(e));
+            }
+        });
+    }
+
+    // dove la parte web fa scaricare: catalogo e schede col numero dei dati, e le foto (gli stessi file di ScaricaDati)
+    static final Pattern FILE_LOCALE = Pattern.compile("dati/(catalogo|schede)-[0-9]{1,14}\\.json|dati/img/[0-9a-f]{1,64}\\.webp");
+
+    /** Un file del catalogo da Storage direttamente nei file dell'app (dati/), intero o niente. */
+    @PluginMethod
+    public void scaricaArchivio(PluginCall call) {
+        String p = call.getString("percorso", ""), f = call.getString("file", "");
+        if (p == null || !p.startsWith("dati/") || !Archivio.PERCORSO.matcher(p).matches() || f == null || !FILE_LOCALE.matcher(f).matches()
+            || !Archivio.stessoTipo(p, f)) {
+            call.reject("percorso non previsto");
+            return;
+        }
+        if (Archivio.utente() == null) { call.reject("senza sessione", "SENZA_SESSIONE"); return; }
+        File dest = new File(getContext().getFilesDir(), f);
+        File cartella = dest.getParentFile();
+        if (cartella != null) cartella.mkdirs();
+        File tmp = new File(dest.getPath() + ".part");
+        Archivio.riferimento(p).getFile(tmp).addOnCompleteListener(t -> {
+            if (t.isSuccessful() && tmp.renameTo(dest)) { call.resolve(); return; }
+            tmp.delete();
+            Exception e = t.getException();
+            call.reject(e == null ? "download non riuscito" : String.valueOf(e.getMessage()), Archivio.codice(e));
+        });
     }
 
     /** Errori e avvisi della parte web finiscono nel registro di Android (etichetta "Eurodex"). */
@@ -487,73 +608,60 @@ public class NativoPlugin extends Plugin {
         call.resolve();
     }
 
+    /**
+     * L'APK della versione nuova, da Storage (rilasci/), con la sessione di questo telefono: lo scarica solo chi può
+     * usare Eurodex (passo 5). Il nome arriva da version.json e si controlla prima di usarlo come percorso; la
+     * dimensione deve tornare con quella di version.json, così ad Android non arriva mai un APK a metà.
+     */
     @PluginMethod
     public void scaricaEInstalla(PluginCall call) {
-        final String url = call.getString("url");
-        if (url == null) { call.reject("manca l'indirizzo"); return; }
-        new Thread(() -> {
-            try {
-                File dir = new File(getContext().getCacheDir(), "aggiornamenti");
-                dir.mkdirs();
-                File apk = new File(dir, "CollezioneEuro.apk");
-                HttpURLConnection con = null;
-                URL u = new URL(url);
-                boolean arrivato = false;
-                for (int hop = 0; hop < 5; hop++) {
-                    con = (HttpURLConnection) u.openConnection();
-                    con.setInstanceFollowRedirects(true);
-                    con.setConnectTimeout(20000);
-                    con.setReadTimeout(60000);
-                    int code = con.getResponseCode();
-                    if (code >= 300 && code < 400 && con.getHeaderField("Location") != null) {
-                        u = new URL(u, con.getHeaderField("Location"));
-                        con.disconnect();
-                        continue;
-                    }
-                    if (code != 200) throw new Exception("HTTP " + code);
-                    arrivato = true;
-                    break;
-                }
-                if (!arrivato) throw new Exception("troppi rimandi");
-                long total = con.getContentLengthLong();
-                long done = 0;
-                int lastPct = -1;
-                try (InputStream in = con.getInputStream(); OutputStream out = new FileOutputStream(apk)) {
-                    byte[] buf = new byte[65536];
-                    int n;
-                    while ((n = in.read(buf)) > 0) {
-                        out.write(buf, 0, n);
-                        done += n;
-                        if (total > 0) {
-                            int pct = (int) (done * 100 / total);
-                            if (pct != lastPct) {
-                                lastPct = pct;
-                                JSObject ev = new JSObject();
-                                ev.put("percento", pct);
-                                notifyListeners("download", ev);
-                            }
-                        }
-                    }
-                }
-                con.disconnect();
-                // file arrivato a metà (connessione caduta): non si passa ad Android un APK rotto
-                long expected = call.getData().optLong("size", 0L);
-                if ((total > 0 && done != total) || (expected > 0 && done != expected)) {
+        final String nome = call.getString("apk", "");
+        final long atteso = call.getData().optLong("size", 0L);
+        if (nome == null || !nome.matches("[A-Za-z0-9._-]{1,80}\\.apk")) { call.reject("Aggiornamento non valido: manca il nome dell'APK"); return; }
+        if (Archivio.utente() == null) { call.reject("Per scaricare gli aggiornamenti serve l'accesso con Google", "SENZA_SESSIONE"); return; }
+        final File dir = new File(getContext().getCacheDir(), "aggiornamenti");
+        dir.mkdirs();
+        final File apk = new File(dir, "CollezioneEuro.apk");
+        apk.delete();
+        final int[] ultimo = { -1 };
+        Archivio.riferimento("rilasci/" + nome).getFile(apk)
+            .addOnProgressListener(st -> {
+                long tot = st.getTotalByteCount();
+                if (tot <= 0) return;
+                int pct = (int) (st.getBytesTransferred() * 100 / tot);
+                if (pct == ultimo[0]) return;
+                ultimo[0] = pct;
+                JSObject ev = new JSObject();
+                ev.put("percento", pct);
+                notifyListeners("download", ev);
+            })
+            .addOnCompleteListener(t -> {
+                if (!t.isSuccessful() || t.getResult() == null) {
                     apk.delete();
-                    throw new Exception("Download incompleto: controlla la connessione e riprova");
+                    Exception e = t.getException();
+                    call.reject("download non riuscito: " + (e == null ? "" : e.getMessage()), Archivio.codice(e));
+                    return;
                 }
-                Uri content = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", apk);
-                Intent i = new Intent(Intent.ACTION_VIEW);
-                i.setDataAndType(content, "application/vnd.android.package-archive");
-                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-                getContext().startActivity(i);
-                JSObject r = new JSObject();
-                r.put("ok", true);
-                call.resolve(r);
-            } catch (Exception e) {
-                call.reject("download non riuscito: " + e.getMessage());
-            }
-        }).start();
+                long fatto = apk.length(), tot = t.getResult().getTotalByteCount();
+                // file arrivato a metà (connessione caduta): non si passa ad Android un APK rotto
+                if ((tot > 0 && fatto != tot) || (atteso > 0 && fatto != atteso)) {
+                    apk.delete();
+                    call.reject("Download incompleto: controlla la connessione e riprova");
+                    return;
+                }
+                try {
+                    Uri content = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", apk);
+                    Intent i = new Intent(Intent.ACTION_VIEW);
+                    i.setDataAndType(content, "application/vnd.android.package-archive");
+                    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                    getContext().startActivity(i);
+                    JSObject r = new JSObject();
+                    r.put("ok", true);
+                    call.resolve(r);
+                } catch (Exception e) {
+                    call.reject("installazione non avviata: " + e.getMessage());
+                }
+            });
     }
 
     // colore delle barre di sistema (stato e navigazione) e colore delle icone (chiare su fondo scuro)
@@ -603,7 +711,6 @@ public class NativoPlugin extends Plugin {
         call.resolve(r);
     }
 
-    // notifiche immediate (push): iscrizione all'argomento "aggiornamenti" di Firebase
     @PluginMethod
     public void datiApplicati(PluginCall call) {
         // l'app dice quali dati sta usando: il controllo in secondo piano e le notifiche non avvisano di dati già presenti
@@ -613,14 +720,17 @@ public class NativoPlugin extends Plugin {
         call.resolve();
     }
 
+    /**
+     * L'interruttore «Avvisami quando c'è qualcosa di nuovo». Dalla 1.0.84 gli avvisi di versione e catalogo arrivano
+     * al token di questo telefono, e solo a chi può usare Eurodex (funzione avvisaNovita): l'argomento pubblico
+     * «aggiornamenti» non serve più e ci si toglie sempre. L'interruttore decide se le notifiche si mostrano.
+     */
     @PluginMethod
     public void iscriviAvvisi(PluginCall call) {
         final boolean on = !Boolean.FALSE.equals(call.getBoolean("attivi", true));
         getContext().getSharedPreferences("aggiornamenti", Context.MODE_PRIVATE).edit().putBoolean("attivi", on).apply();
         try {
-            com.google.firebase.messaging.FirebaseMessaging fm = com.google.firebase.messaging.FirebaseMessaging.getInstance();
-            com.google.android.gms.tasks.Task<Void> t = on ? fm.subscribeToTopic("aggiornamenti") : fm.unsubscribeFromTopic("aggiornamenti");
-            t.addOnCompleteListener(r -> {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().unsubscribeFromTopic("aggiornamenti").addOnCompleteListener(r -> {
                 JSObject o = new JSObject();
                 o.put("ok", r.isSuccessful());
                 if (!r.isSuccessful() && r.getException() != null) o.put("errore", r.getException().getMessage());
