@@ -147,6 +147,8 @@ jobs:
     timeout-minutes: 30
     outputs:
       pubblicati: ${{ steps.dati.outputs.pubblicati }}
+      # il commit dei dati pubblicato sulla pagina: Storage prende proprio quello (revisione di Claude 3 su #27)
+      commit: ${{ steps.dati.outputs.commit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -193,6 +195,7 @@ jobs:
           export GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/segreti/deploy -o IdentitiesOnly=yes"
           # i dati sono quelli appena salvati su main (il commit controllato da applica-dati.sh)
           git fetch -q origin main && git checkout -q -B main origin/main
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           REV=$(python3 -c "import json;print(json.load(open('www/data/indice.json'))['rev'])")
           # rev viene dai dati preparati da "scarica" (codice di terzi): qui deve essere solo un numero (AAAAMMGGhhmm,
           # 12 cifre), e non entra mai nel testo di uno script (Python o shell), solo come argomento
@@ -249,6 +252,51 @@ jobs:
       - name: Via i file dei segreti
         if: always()
         run: rm -rf "$RUNNER_TEMP/segreti"
+
+  # Passo 5 (B1): il catalogo anche su Storage, dove lo leggono le app dalla 1.0.84 (solo chi può usare Eurodex).
+  # Viene dopo "pubblica": l'avviso dal token parte con indice.json su Storage, e così arriva quando la pagina ha già
+  # i dati nuovi (le app fino alla 1.0.83 leggono da lì). Decide da solo se c'è qualcosa da caricare, confrontando
+  # con l'indice che c'è su Storage: anche quando la pagina era già aggiornata (il primo caricamento, con solo_pubblica)
+  storage:
+    needs: pubblica
+    if: ${{ !cancelled() && needs.pubblica.result == 'success' && !inputs.prova }}
+    environment: catalogo
+    permissions:
+      contents: read
+      # il gettone di Google per Storage (google-github-actions/auth), solo in questo job
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BUCKET: collezione-euro-24ecd.firebasestorage.app
+    steps:
+      # proprio il commit dei dati che "pubblica" ha messo sulla pagina, non l'ultimo di main: se nel frattempo su main
+      # arrivasse altro, pagina e Storage avrebbero comunque gli stessi dati (revisione di Claude 3 su #27)
+      - name: Il commit dei dati della pagina
+        env:
+          COMMIT: ${{ needs.pubblica.outputs.commit }}
+        run: '[[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Storage::manca il commit dei dati di pubblica"; exit 1; }'
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.pubblica.outputs.commit }}
+          persist-credentials: false
+
+      - name: Accesso a Storage (senza chiavi, un gettone di un'ora che scrive solo in dati/)
+        id: storage
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: projects/274166331144/locations/global/workloadIdentityPools/github/providers/eurodex
+          service_account: eurodex-dati@collezione-euro-24ecd.iam.gserviceaccount.com
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/devstorage.read_write
+          create_credentials_file: false
+          export_environment_variables: false
+
+      - name: Su Storage il catalogo (le foto nuove, catalogo e schede, poi indice.json)
+        env:
+          STORAGE_TOKEN: ${{ steps.storage.outputs.access_token }}
+        run: node scripts/carica-storage.mjs dati "$BUCKET" www/data
 
   notifica:
     needs: pubblica
