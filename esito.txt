@@ -1,0 +1,111 @@
+
+schermo: Physical size: 1080x2400
+android: 14
+installazione: Performing Streamed Install
+Success
+trasporti backup: * com.android.localtransport/.LocalTransport
+Selected transport com.android.localtransport/.LocalTransport (formerly com.android.localtransport/.LocalTransport)
+emulatori di Firebase: sì (utente di prova prova-apk@example.com)
+[schermata] 01_animazione_1.png
+[schermata] 02_animazione_2.png
+[schermata] 03_animazione_3.png
+registro animazione: 
+OK  all'apertura c'è l'animazione sul fondo blu
+OK  il video dell'animazione si vede (punti dorati: 1887)
+[schermata] 04_benvenuto.png
+OK  primo avvio: compare il benvenuto con l'importazione
+tocco "Inizia": ok
+[schermata] 05_avvio.png
+OK  la schermata iniziale si apre
+OK  il benvenuto si chiude e non ricompare
+tocco "Mancanti": ok
+mancanti all'inizio: 9837
+tocco "Catalogo": ok
+[schermata] 06_catalogo.png
+tocco "Mappa": ok
+[schermata] 07_mappa.png
+tocco "Elenco": ok
+tocco "Italia": ok (dopo aver scorso la pagina)
+[schermata] 08_italia.png
+OK  si apre la pagina di un paese
+tocco "1 cent": ok
+[schermata] 09_italia_1cent.png
+tocco "2002 R": ok
+[schermata] 10_segnata.png
+OK  dopo aver segnato compare "Annulla"
+tocco "Dettagli: 1 cent": ok
+[schermata] 11_scheda.png
+OK  la scheda moneta mostra le emissioni
+tocco "Ingrandisci il lato nazionale": ok
+[schermata] 12_zoom.png
+[schermata] 13_scheda_tabella.png
+[schermata] 14_scheda_caratteristiche.png
+OK  la scheda completa (Numista) si carica
+[schermata] 15_dopo_indietro.png
+tocco "Mancanti": ok
+[schermata] 16_mancanti.png
+mancanti dopo aver segnato: 9836
+OK  segnata una moneta: le mancanti scendono di 1
+tocco "Cerca": ok
+[schermata] 17_cerca.png
+tocco "Impostazioni": ok
+[schermata] 18_impostazioni.png
+tocco "Collega Google Drive": ok (posizione ferma 540,2184)
+[schermata] 19_selettore_file.png
+tocco "SAVE": ok
+[schermata] 20_backup_collegato.png
+OK  il backup su file scelto funziona (scrittura riuscita)
+tocco "Accedi con Google": ok (posizione ferma 540,1715)
+[schermata] 21_accesso_di_prova.png
+OK  accesso di prova con gli emulatori: «Accedi con Google» entra come prova-apk@example.com
+[schermata] 22_impostazioni_2.png
+  posizioni lette: {'Controlla aggiornamenti': ((540, 1138), '[44,1073][1036,1204]'), 'Novità delle versioni': ((540, 1285), '[44,1220][1036,1351]'), 'Storico delle modifiche': ((540, 1530), '[44,1466][1036,1595]')}
+[schermata] 23_prima_del_tocco_aggiornamenti.png
+tocco "Controlla aggiornamenti": ok
+[schermata] 24_aggiornamenti.png
+  (durante il controllo il pulsante mostra "Controllo in corso…": non visto (risposta immediata?))
+OK  il controllo aggiornamenti risponde (legge rilasci/version.json dallo Storage degli emulatori)
+[schermata] 25_impostazioni_3.png
+tocco "Impostazioni": ok
+tocco "Esci dall'account su questo dispositivo": ok (dopo aver scorso la pagina)
+tocco "Esci": ok
+tocco "Impostazioni": ok
+[schermata] 26_uscita_di_prova.png
+OK  uscita dall'account di prova: dopo «Esci», «Account Google» torna «consigliato»
+tocco "Crea il PDF del catalogo": ok (dopo aver scorso la pagina)
+[schermata] 27_pdf_condivisione.png
+  (dopo il tocco in primo piano: pResumedActivity=ActivityRecord{d6dcbe4 u0 com.android.intentresolver/.ChooserActivity t8})
+OK  catalogo in PDF: si crea il file e si apre la condivisione di Android
+  (chiusa una finestra di apertura dell'app)
+  (chiusa una finestra di apertura dell'app)
+[schermata] 28_scuro_home.png
+OK  modalità scura: lo sfondo diventa scuro (luminosità mediana: barra in basso 30, in alto 17; punti chiari delle scritte delle schede: 111)
+tocco "Catalogo": ok
+tocco "Italia": ok (dopo aver scorso la pagina)
+[schermata] 29_scuro_italia.png
+[schermata] 30_muro_acceso.png
+OK  col muro acceso (solo su questo telefono) si vede il muro vero: «Eurodex è su invito» e «Accedi con Google»
+[schermata] 31_muro_acceso_prove.png
+OK  col muro acceso e debug.eurodex.prove=1 le prove vedono l'app
+tocco "Impostazioni": ok
+[schermata] 32_copie_giornaliere.png
+OK  la copia giornaliera sul telefono viene salvata
+  (l'app non era in primo piano: la riapro)
+tocco "Le mie": ok
+[schermata] 33_le_mie.png
+OK  tirando la pagina la barra delle schede resta ferma (differenza 0.0)
+backup Android: Running incremental backup for 1 requested packages. | Package @pm@ with result: Success | Package it.collezione.euro with progress: 2048/2560 | Package it.collezione.euro with progress: 3072/2560 | Package it.collezione.euro with progress: 4608/2560 | Package it.collezione.euro with result: Success | Backup finished with result: Success
+OK  Android accetta il backup dell'app
+disinstallazione: Success
+reinstallazione: Performing Streamed Install
+Success
+[schermata] 34_dopo_reinstallazione.png
+  (chiusa una finestra di apertura dell'app)
+  (chiusa una finestra di apertura dell'app)
+tocco "Mancanti": ok
+[schermata] 35_mancanti_dopo_reinstallazione.png
+mancanti dopo la reinstallazione: 9836 (prima: 9836)
+OK  dopo disinstallazione e reinstallazione la collezione torna dal backup di Android
+errori nel registro: 0
+
+RISULTATO: TUTTO OK

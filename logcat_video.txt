@@ -1,0 +1,124 @@
+11-26 06:51:03.613  2844  2898 I cr_MediaCodecBridge: create MediaCodec video decoder, mime video/avc
+11-26 06:51:03.622  2844  2898 D MediaCodecList: codecHandlesFormat: no format, so no extra checks
+11-26 06:51:03.625  2844  2898 D MediaCodecList: codecHandlesFormat: no format, so no extra checks
+11-26 06:51:03.635  2844  3109 D CCodec  : allocate(c2.goldfish.h264.decoder)
+11-26 06:51:03.636  2844  3109 I Codec2Client: Available Codec2 services: "default" "software"
+11-26 06:51:03.637  2844  3109 I CCodec  : setting up 'default' as default (vendor) store
+11-26 06:51:03.639  2844  3109 I CCodec  : Created component [c2.goldfish.h264.decoder]
+11-26 06:51:03.639  2844  3109 D CCodecConfig: read media type: video/avc
+11-26 06:51:03.641  2844  3109 D CCodecConfig: ignoring local param raw.size (0xd2001800) as it is already supported
+11-26 06:51:03.641  2844  3109 D CCodecConfig: ignoring local param default.color (0x5200180b) as it is already supported
+11-26 06:51:03.641  2844  3109 I CCodecConfig: query failed after returning 12 values (BAD_INDEX)
+11-26 06:51:03.641  2844  3109 D CCodecConfig: c2 config diff is Dict {
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 coded.pl.level = 20496
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 coded.pl.profile = 20481
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 coded.vui.color.matrix = 0
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 coded.vui.color.primaries = 0
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 coded.vui.color.range = 2
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 coded.vui.color.transfer = 0
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 default.color.matrix = 0
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 default.color.primaries = 0
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 default.color.range = 0
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 default.color.transfer = 0
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 input.buffers.max-size.value = 6291456
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 input.delay.value = 0
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   string input.media-type.value = "video/avc"
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 output.delay.value = 8
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   string output.media-type.value = "video/raw"
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 raw.color.matrix = 0
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 raw.color.primaries = 0
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 raw.color.range = 2
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 raw.color.transfer = 0
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 raw.max-size.height = 240
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 raw.max-size.width = 320
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 raw.pixel-format.value = 35
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::i32 raw.rotation.flip = 0
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::i32 raw.rotation.value = 0
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 raw.sar.height = 1
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 raw.sar.width = 1
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 raw.size.height = 240
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2::u32 raw.size.width = 320
+11-26 06:51:03.641  2844  3109 D CCodecConfig:   c2:
+11-26 06:51:03.648  2844  3105 I MediaCodec: MediaCodec will operate in async mode
+11-26 06:51:03.649  2844  3105 D MediaCodec: flushMediametrics
+11-26 06:51:03.649  2844  3105 I MediaCodec: [c2.goldfish.h264.decoder] setting surface generation to 2912257
+11-26 06:51:03.649  2844  3109 D CCodec  : [c2.goldfish.h264.decoder] buffers are bound to CCodec for this session
+11-26 06:51:03.649  2844  3109 D CCodecConfig: no c2 equivalents for csd-1
+11-26 06:51:03.649  2844  3109 D CCodecConfig: no c2 equivalents for native-window
+11-26 06:51:03.649  2844  3109 D CCodecConfig: no c2 equivalents for flags
+11-26 06:51:03.649  2844  3109 D CCodecConfig: config failed => CORRUPTED
+11-26 06:51:03.650  2844  3109 D CCodecConfig: c2 config diff is   c2::u32 raw.max-size.height = 1600
+11-26 06:51:03.650  2844  3109 D CCodecConfig:   c2::u32 raw.max-size.width = 720
+11-26 06:51:03.650  2844  3109 D CCodecConfig:   c2::u32 raw.size.height = 1600
+11-26 06:51:03.650  2844  3109 D CCodecConfig:   c2::u32 raw.size.width = 720
+11-26 06:51:03.650  2844  3109 W Codec2Client: query -- param skipped: index = 1107298332.
+11-26 06:51:03.650  2844  3109 D CCodec  : client requested max input size 1920000, which is smaller than what component recommended (6291456); overriding with component recommendation.
+11-26 06:51:03.650  2844  3109 W CCodec  : This behavior is subject to change. It is recommended that app developers double check whether the requested max input size is in reasonable range.
+11-26 06:51:03.650  2844  3109 D CCodec  : encoding statistics level = 0
+11-26 06:51:03.650  2844  3109 D CCodec  : setup formats input: AMessage(what = 0x00000000) = {
+11-26 06:51:03.650  2844  3109 D CCodec  :   int32_t height = 1600
+11-26 06:51:03.650  2844  3109 D CCodec  :   int32_t level = 65536
+11-26 06:51:03.650  2844  3109 D CCodec  :   int32_t max-input-size = 6291456
+11-26 06:51:03.650  2844  3109 D CCodec  :   string mime = "video/avc"
+11-26 06:51:03.650  2844  3109 D CCodec  :   int32_t profile = 65536
+11-26 06:51:03.650  2844  3109 D CCodec  :   int32_t width = 720
+11-26 06:51:03.650  2844  3109 D CCodec  :   Rect crop(0, 0, 719, 1599)
+11-26 06:51:03.650  2844  3109 D CCodec  : }
+11-26 06:51:03.650  2844  3109 D CCodec  : setup formats output: AMessage(what = 0x00000000) = {
+11-26 06:51:03.650  2844  3109 D CCodec  :   int32_t android._color-format = 2135033992
+11-26 06:51:03.650  2844  3109 D CCodec  :   int32_t android._video-scaling = 1
+11-26 06:51:03.650  2844  3109 D CCodec  :   int32_t rotation-degrees = 0
+11-26 06:51:03.650  2844  3109 D CCodec  :   int32_t color-standard = 1
+11-26 06:51:03.650  2844  3109 D CCodec  :   int32_t color-range = 2
+11-26 06:51:03.650  2844  3109 D CCodec  :   int32_t color-transfer = 3
+11-26 06:51:03.650  2844  3109 D CCodec  :   int32_t sar-height = 1
+11-26 06:51:03.650  2844  3109 D CCodec  :   int32_t sar-width = 1
+11-26 06:51:03.650  2844  3109 D CCodec  :   Rect crop(0, 0, 719, 1599)
+11-26 06:51:03.650  2844  3109 D CCodec  :   int32_t width = 720
+11-26 06:51:03.650  2844  3109 D CCodec  :   int32_t height = 1600
+11-26 06:51:03.650  2844  3109 D CCodec  :   int32_t max-height = 1600
+11-26 06:51:03.650  2844  3109 D CCodec  :   int32_t max-width = 720
+11-26 06:51:03.650  2844  3109 D CCodec  :   string mime = "video/raw"
+11-26 06:51:03.650  2844  3109 D CCodec  :   int32_t android._dataspace = 260
+11-26 06:51:03.650  2844  3109 D CCodec  :   int32_t color-format = 2130708361
+11-26 06:51:03.650  2844  3109 D CCodec  : }
+11-26 06:51:03.650  2844  3109 I CCodecConfig: query failed after returning 12 values (BAD_INDEX)
+11-26 06:51:03.650  2844  2898 D MediaCodec: keep callback message for reclaim
+11-26 06:51:03.651  2844  3109 W Codec2Client: query -- param skipped: index = 1342179345.
+11-26 06:51:03.651  2844  3109 W Codec2Client: query -- param skipped: index = 2415921170.
+11-26 06:51:03.651  2844  3109 W Codec2Client: query -- param skipped: index = 1610614798.
+11-26 06:51:03.651  2844  3109 W Codec2Client: query -- param skipped: index = 2684356609.
+11-26 06:51:03.651  2844  3109 D CCodecBufferChannel: [c2.goldfish.h264.decoder#815] Created input block pool with allocatorID 16 => poolID 17 - OK (0)
+11-26 06:51:03.652  2844  3109 D CCodecBufferChannel: [c2.goldfish.h264.decoder#815] Query output surface allocator returned 0 params => BAD_INDEX (6)
+11-26 06:51:03.652  2844  3109 I CCodecBufferChannel: [c2.goldfish.h264.decoder#815] Created output block pool with allocatorID 18 => poolID 17 - OK
+11-26 06:51:03.652  2844  3109 D CCodecBufferChannel: [c2.goldfish.h264.decoder#815] Configured output block pool ids 17 => OK
+11-26 06:51:03.652  2844  3109 D Codec2-OutputBufferQueue: remote graphic buffer migration 0/0
+11-26 06:51:03.652  2844  3109 D Codec2Client: setOutputSurface -- failed to set consumer usage (6/BAD_INDEX)
+11-26 06:51:03.652  2844  3109 D Codec2Client: setOutputSurface -- generation=2912257 consumer usage=0x900
+11-26 06:51:03.672  2844  3109 D Codec2Client: Surface configure completed
+11-26 06:51:03.696  2844  3113 D CCodecBufferChannel: [c2.goldfish.h264.decoder#815] Ignoring stale input buffer done callback: last flush index = 0, frameIndex = 0
+11-26 06:51:03.793  2844  3109 D CCodecConfig: c2 config diff is   c2::u32 raw.color.matrix = 3
+11-26 06:51:03.793  2844  3109 D CCodecConfig:   c2::u32 raw.color.primaries = 1
+11-26 06:51:03.793  2844  3109 D CCodecConfig:   c2::u32 raw.color.transfer = 2
+11-26 06:51:03.793  2844  3109 D CCodecConfig:   c2::u32 raw.crop.height = 1600
+11-26 06:51:03.793  2844  3109 D CCodecConfig:   c2::u32 raw.crop.left = 0
+11-26 06:51:03.793  2844  3109 D CCodecConfig:   c2::u32 raw.crop.top = 0
+11-26 06:51:03.793  2844  3109 D CCodecConfig:   c2::u32 raw.crop.width = 720
+11-26 06:51:03.793  2844  3109 D CCodecBuffers: [c2.goldfish.h264.decoder#815:2D-Output] popFromStashAndRegister: at 0us, output format changed to AMessage(what = 0x00000000) = {
+11-26 06:51:03.793  2844  3109 D CCodecBuffers:   int32_t android._color-format = 2135033992
+11-26 06:51:03.793  2844  3109 D CCodecBuffers:   int32_t android._video-scaling = 1
+11-26 06:51:03.793  2844  3109 D CCodecBuffers:   int32_t rotation-degrees = 0
+11-26 06:51:03.793  2844  3109 D CCodecBuffers:   int32_t color-standard = 86
+11-26 06:51:03.793  2844  3109 D CCodecBuffers:   int32_t color-range = 2
+11-26 06:51:03.793  2844  3109 D CCodecBuffers:   int32_t color-transfer = 2
+11-26 06:51:03.793  2844  3109 D CCodecBuffers:   int32_t sar-height = 1
+11-26 06:51:03.793  2844  3109 D CCodecBuffers:   int32_t sar-width = 1
+11-26 06:51:03.793  2844  3109 D CCodecBuffers:   Rect crop(0, 0, 719, 1599)
+11-26 06:51:03.793  2844  3109 D CCodecBuffers:   int32_t width = 720
+11-26 06:51:03.793  2844  3109 D CCodecBuffers:   int32_t height = 1600
+11-26 06:51:03.793  2844  3109 D CCodecBuffers:   int32_t max-height = 1600
+11-26 06:51:03.793  2844  3109 D CCodecBuffers:   int32_t max-width = 720
+11-26 06:51:03.793  2844  3109 D CCodecBuffers:   string mime = "video/raw"
+11-26 06:51:03.793  2844  3109 D CCodecBuffers:   int32_t android._dataspace = 276955136
+11-26 06:51:03.793  2844  3109 D CCodecBuffers:   int32_t color-format = 2130708361
+11-26 06:51:03.793  2844  3109 D CCodecBuffers: }
