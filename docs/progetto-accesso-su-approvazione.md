@@ -114,7 +114,8 @@ impedire, e non tocca i servizi.
   dall'approvato). `invia-avviso.py` li legge con l'SDK Admin e manda gli invii a gruppi.
 - **Sincronizzazione**: `avvisaDispositivi` manda ai token dei dispositivi di quell'account, non più all'argomento
   `c_<cid>`.
-- L'app nuova si disiscrive dagli argomenti vecchi.
+- L'app nuova si disiscrive dagli argomenti vecchi, nei tempi del §10.3: `aggiornamenti` solo dopo che il server manda
+  gli avvisi anche ai token.
 
 ### 4.6 Aggiornamenti e contenuti solo agli approvati
 
@@ -412,3 +413,81 @@ diverse di §4 e §9.
   - dopo l'accesso, direttamente «Richiesta inviata»;
   - per chi è rifiutato, «Accesso non approvato», e per chi non ha più l'accesso, «Accesso tolto»;
   - tutte e due hanno «Chiedi di nuovo», premibile una volta al minuto, e «Usa un altro account».
+
+## 11. Passo 5: com'è fatto (25/11)
+
+Valerio ha dato il via il 25/11 alle 19:08. Il piano è sul tavolo (`eurodex-tavolo` #1, messaggio 7170700214), in
+quattro PR: A server (#26), B workflow (#27), C app 1.0.84, D prove sull'APK. Le regole dell'accesso non cambiano:
+cambia da dove arrivano avvisi, versioni e catalogo. Quello che segue sostituisce §4.6 e §5 dove sono diversi.
+
+### 11.1 Storage
+- **Il bucket** è quello predefinito del progetto, `collezione-euro-24ecd.firebasestorage.app`, negli Stati Uniti
+  (`us-central1`, scelta di Valerio del 25/11 alle 19:21: lì, con i nostri volumi, è gratis).
+- **Cosa c'è:** `rilasci/version.json` e gli APK (`rilasci/<nome>.apk`, il nome lo dà `version.json`);
+  `dati/indice.json`, catalogo e schede (`dati/catalog*.json`, `dati/details*.json`) e le foto (`dati/img/*.webp`).
+- **Le regole** (`firebase/storage.rules`): si può solo leggere un file alla volta (`get`), con la stessa condizione
+  di `puoUsare` in `firestore.rules` (Valerio, gli approvati, e con il muro spento tutti tranne gli esclusi), e solo
+  con un accesso Google. Niente elenco dei file, nessuna scrittura dall'app. Lo stato si legge da Firestore a ogni
+  richiesta, quindi una revoca vale subito. Storage permette al massimo due documenti di Firestore per valutazione:
+  sono esattamente `accessi/{uid}` e `config/accesso`.
+- **Chi scrive:** solo i workflow, da `main`, senza chiavi (Workload Identity Federation, scelta del 25/11 alle
+  19:26): `eurodex-rilasci` solo in `rilasci/`, dall'environment `pubblicazione`; `eurodex-dati` solo in `dati/`,
+  dall'environment `catalogo`. Nessuna chiave da custodire: GitHub dimostra a Google chi è, e il permesso vale solo
+  per quel repository, quel ramo e quell'environment.
+
+### 11.2 Gli avvisi
+- La funzione `avvisaNovita` (nella stessa regione del bucket, come vuole Eventarc) parte quando si scrive
+  `rilasci/version.json` o `dati/indice.json` e manda l'avviso di versione o di catalogo ai telefoni degli account che
+  possono usare Eurodex, con la stessa condizione delle regole. Il muro e la lista degli account si leggono a ogni
+  avviso.
+- Dalla 1.0.84 l'app si toglie sempre dall'argomento `aggiornamenti`; gli avvisi arrivano solo al suo token.
+
+### 11.3 L'app 1.0.84
+- **Due sessioni, un accesso** (§9.4): all'accesso con Google lo stesso gettone apre la sessione della parte web e
+  quella nativa, che serve a scaricare anche in background. Se la sessione nativa è di un altro account, si chiude.
+  «Esci» le chiude tutte e due.
+- **Chi era già entrato prima della 1.0.84** ha solo la sessione della parte web. All'avvio vede «Un ultimo passo»
+  (al massimo una volta ogni 20 ore), e lo stesso foglio compare se tocca «Controlla aggiornamenti». «Continua» chiede
+  a Google l'account che ha già dato il permesso all'app (con uno solo, nessuna scelta); se Google ne dà un altro, non
+  si tiene. Non è un tentativo di accesso (§10.1), perché la parte web non rifà l'accesso. Appena la sessione è aperta
+  si ricontrollano versione e catalogo.
+  - Il piano diceva: tentativo in silenzio all'avvio, e se non riesce un avviso in Impostazioni. È diventato un
+    foglio con un tocco perché il pannello di Google compare anche quando l'account è uno solo, e un pannello che
+    compare da solo all'avvio, senza una riga che lo spieghi, confonde.
+- **Da dove scarica:** solo da Storage, con l'SDK nativo e il gettone dell'utente, mai con indirizzi di download.
+  `version.json` e l'indice si leggono in memoria (al massimo 1 MB); APK, catalogo, schede e foto vanno direttamente
+  nei file. L'app chiede solo i percorsi che le regole conoscono.
+- **In background** `ControlloAggiornamenti` (ogni 6 ore) e `ScaricaDati` leggono da Storage. Senza sessione, o per
+  chi non può usare Eurodex, non fanno niente e non danno errori.
+- **I messaggi:** a chi non è entrato con Google, «Controlla aggiornamenti» dice dove entrare; a chi non può usare
+  Eurodex, che gli aggiornamenti arrivano solo agli account approvati.
+- **Il modo delle prove con gli emulatori** (per D): con `debug.eurodex.emulatori=1`, che come `prove` può mettere solo
+  chi ha adb, tutto va agli emulatori di Firebase su `10.0.2.2` (Auth 9099, Firestore 8080, Storage 9199), mai metà e
+  metà. L'accesso è un account di prova senza Credential Manager. Il traffico in chiaro è permesso solo verso
+  `10.0.2.2` (`res/xml/rete.xml`).
+- **Librerie nuove:** `firebase-auth` 23.1.0 e `firebase-storage` 21.0.1.
+
+### 11.4 Il passaggio, in ordine
+1. Claude 1, dal PC di Valerio e con il suo via, crea il bucket, i due account di servizio e i permessi, dopo avergli
+   mandato l'elenco esatto. Solo cose gratuite: se qualcosa costa, ci si ferma.
+2. Si unisce e si installa il server (#26). Finché su Storage non ci sono file non cambia niente: le app fino alla
+   1.0.83 leggono ancora la pagina pubblica.
+3. Primo caricamento del catalogo su Storage, con un giro a mano di `catalogo.yml`.
+4. La 1.0.84 esce su Storage e, per l'ultima volta, sulla pagina pubblica, con un ultimo avviso anche ad
+   `aggiornamenti`: così le app vecchie si aggiornano un'ultima volta.
+5. Quando nell'elenco di Valerio tutti i telefoni sono alla 1.0.84: via `c_<uid>` e `aggiornamenti` dal server, via
+   `dati/` dalla pagina pubblica. Sulla pagina restano l'APK per la prima installazione e `version.json`, fermo per
+   sempre alla 1.0.84.
+
+Dopo il passo 5 versioni e catalogo nuovi arrivano solo a chi ha fatto l'accesso con Google, anche con il muro
+spento (Valerio, 25/11 alle 19:19: «Va bene»).
+
+### 11.5 Le prove
+- `prove/regole-storage.py`: le regole di Storage sull'emulatore, 37 controlli (approvato sì; in attesa, rifiutato,
+  tolto e senza accesso no; muro spento e non escluso sì; elenco e scrittura mai).
+- `firebase/functions/logica.test.js`: chi riceve gli avvisi, e cosa.
+- `scripts/prova-sincronizzazione.py` (Claude 2): sul server vero, chi non entra con Google resta fuori anche da
+  Storage.
+- D (Claude 3): gli emulatori accanto al telefono simulato, preparati come il server vero (`prove/emulatori-apk.py`),
+  poi `test-emulator.py` nel modo degli emulatori: completa, `sopra` e aggiornamento.
+- Sul telefono vero, la prima volta: Valerio, con il suo account.

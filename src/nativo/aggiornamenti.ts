@@ -2,23 +2,24 @@ import type { PluginListenerHandle } from '@capacitor/core';
 import { html, nothing, type TemplateResult } from 'lit-html';
 import { backupNativo } from '../collezione/backup';
 import { meta } from '../collezione/stato';
-import { RAW_DOWNLOAD } from '../core/costanti';
 import { $ } from '../core/dom';
-import { leggiFresco } from '../core/rete';
+import { ErroreArchivio, leggiIndice, nomeApk } from '../core/archivio';
 import { avviso } from '../ui/avvisi';
+import { aggiornaDatiOra } from '../ui/dati-catalogo';
 import { apriFoglio, apriFoglioEAspetta } from '../ui/foglio';
 import { ICONA } from '../ui/icone';
 import { ridisegna } from '../ui/navigazione';
 import { stato, type VersioneDisponibile } from '../ui/stato-ui';
+import { sessioneNativaPronta } from '../sync/sessione-nativa';
+import { sync } from '../sync/sincronizzazione';
+import { ultimoPassoAccesso } from '../viste/finestre';
 import { Nativo, messaggio, nativo } from './plugin';
 import { versioneApp } from './versione';
 
-/** Aggiornamenti dell'app (APK dalla pagina di download, installati con la finestra di Android). */
-
-/** Il file ha il numero di versione nel nome: così non si scarica mai una copia vecchia rimasta in memoria su internet. */
-const indirizzoApk = (): string =>
-  RAW_DOWNLOAD +
-  (stato.update?.apk && /^[\w.-]+\.apk$/.test(stato.update.apk) ? stato.update.apk : 'CollezioneEuro.apk');
+/**
+ * Aggiornamenti dell'app: dalla 1.0.84 version.json e l'APK arrivano da Storage (rilasci/), solo per chi può usare
+ * Eurodex, e si installano con la finestra di Android.
+ */
 
 /** La risposta a un controllo chiesto a mano resta un po' più dei 3 secondi soliti: è l'unico segno che il controllo
  * è stato fatto, e chi tocca il pulsante può guardare altrove per un attimo. */
@@ -36,7 +37,7 @@ export async function controllaAggiornamento(
   try {
     const ac = attesaMax ? new AbortController() : null;
     if (ac) setTimeout(() => ac.abort(), attesaMax);
-    const v = await leggiFresco<VersioneDisponibile>('version.json', ac?.signal);
+    const v = await leggiIndice<VersioneDisponibile>('rilasci/version.json', ac?.signal);
     meta.updChecked = Date.now();
     if (v.code > versioneApp.code) {
       stato.update = v;
@@ -46,9 +47,27 @@ export async function controllaAggiornamento(
       stato.update = null;
       if (manuale) avviso(giaAggiornata, DURATA_RISPOSTA);
     }
-  } catch {
-    if (manuale) avviso('Controllo non riuscito: sei connesso a internet?', DURATA_RISPOSTA);
+  } catch (e) {
+    if (!manuale) return;
+    const motivo = e instanceof ErroreArchivio ? e.motivo : 'rete';
+    if (motivo === 'senzaSessione') await senzaSessione(attesaMax, giaAggiornata);
+    else if (motivo === 'negato') avviso('Gli aggiornamenti arrivano solo agli account approvati', DURATA_RISPOSTA);
+    else avviso('Controllo non riuscito: sei connesso a internet?', DURATA_RISPOSTA);
   }
+}
+
+/** Controllo a mano senza la sessione nativa. Chi è entrato con Google prima della 1.0.84 e all'avvio ha scelto
+ * «Più tardi» ritrova lo stesso foglio, e con la sessione aperta il controllo si rifà; gli altri sanno dove entrare. */
+async function senzaSessione(attesaMax: number | undefined, giaAggiornata: string): Promise<void> {
+  const account = sync;
+  if (!account) {
+    avviso("Per gli aggiornamenti serve l'accesso con Google: Impostazioni → Salvataggio e sincronizzazione", 6000);
+    return;
+  }
+  await ultimoPassoAccesso(account.email);
+  if (!(await sessioneNativaPronta(account.uid))) return;
+  void aggiornaDatiOra(false);
+  await controllaAggiornamento(true, attesaMax, giaAggiornata);
 }
 
 function contenuto(allAvvio: boolean): TemplateResult {
@@ -104,11 +123,12 @@ let ascoltoDownload: PluginListenerHandle | null = null;
 export async function installaAggiornamento(): Promise<void> {
   const st = $('#updst');
   const b = $<HTMLButtonElement>('#instbtn');
-  if (!nativo()) {
-    location.href = indirizzoApk();
+  if (!nativo() || !st || !b) return;
+  const apk = nomeApk(stato.update);
+  if (!apk) {
+    st.textContent = 'Aggiornamento non valido: riprova più tardi.';
     return;
   }
-  if (!st || !b) return;
   try {
     const pr = await Nativo.puoInstallare();
     if (!pr.permesso) {
@@ -124,7 +144,7 @@ export async function installaAggiornamento(): Promise<void> {
       if (b.isConnected) b.textContent = `Scarico… ${e.percento}%`;
     });
     await backupNativo(); // prima di tutto la collezione al sicuro
-    await Nativo.scaricaEInstalla({ url: indirizzoApk(), size: stato.update?.size ?? 0 });
+    await Nativo.scaricaEInstalla({ apk, size: stato.update?.size ?? 0 });
     // se nella finestra di Android si tocca "Annulla", da qui si può riaprire
     b.disabled = false;
     b.textContent = "Riapri l'installazione";

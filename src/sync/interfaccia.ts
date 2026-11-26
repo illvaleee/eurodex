@@ -6,6 +6,7 @@ import { dialogo } from '../ui/dialogo';
 import { chiudiFoglio, foglioCon } from '../ui/foglio';
 import { ICONA, ICONA_GOOGLE } from '../ui/icone';
 import type { Dispositivo } from './motore';
+import { apriSessioneNativa } from './sessione-nativa';
 import {
   accedi,
   esci,
@@ -160,6 +161,23 @@ export async function azioneAccedi(): Promise<void> {
   if (foglioCon('.nvsheet') || foglioCon('.welcome')) chiudiFoglio();
   aggiornaSezione();
   avviso(`Fatto ✓ Collezione sincronizzata con ${sync?.email || 'il tuo account Google'}`, 5000);
+}
+
+/** «Continua» nell'ultimo passo dell'accesso (passo 5): la sessione nativa con lo stesso account. Vero se c'è. */
+export async function azioneSessioneNativa(): Promise<boolean> {
+  if (!sync) return false;
+  const { uid, email } = sync;
+  const r = await inCorso('[data-act="sessionenativa"]', null, () => apriSessioneNativa(uid, email));
+  if (r === 'ok') {
+    if (foglioCon('.nvsheet')) chiudiFoglio();
+    avviso('Fatto ✓ Versioni e catalogo nuovi arriveranno da soli', 5000);
+    return true;
+  }
+  if (r === 'altroAccount') avviso(`Scegli lo stesso account con cui sei entrato${email ? `: ${email}` : ''}`, 6000);
+  else if (r === 'nessunAccount')
+    avviso("Su questo dispositivo non c'è un account Google: aggiungilo nelle Impostazioni di Android");
+  else if (r === 'errore') avviso('Non è riuscito: sei connesso a internet?');
+  return false;
 }
 
 export async function azioneRinomina(): Promise<void> {

@@ -176,14 +176,20 @@ jobs:
           if grep -q 'android:fullBackupContent\|android:dataExtractionRules' android/app/src/main/AndroidManifest.xml; then echo "Regole di backup già nel manifest: da controllare"; exit 1; fi
           sed -i '0,/<application/s##<application android:dataExtractionRules="@xml/regole_backup" android:fullBackupContent="@xml/backup_vecchio"#' android/app/src/main/AndroidManifest.xml
           grep -c 'android:dataExtractionRules="@xml/regole_backup"' android/app/src/main/AndroidManifest.xml
+          # traffico in chiaro solo verso 10.0.2.2, per le prove con gli emulatori di Firebase (native/res/xml/rete.xml)
+          if grep -q 'android:networkSecurityConfig\|android:usesCleartextTraffic' android/app/src/main/AndroidManifest.xml; then echo "Configurazione di rete già nel manifest: da controllare"; exit 1; fi
+          sed -i '0,/<application/s##<application android:networkSecurityConfig="@xml/rete"#' android/app/src/main/AndroidManifest.xml
+          grep -c 'android:networkSecurityConfig="@xml/rete"' android/app/src/main/AndroidManifest.xml
           sed -i 's#<uses-permission android:name="android.permission.INTERNET" />#<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />#' android/app/src/main/AndroidManifest.xml
           grep -c REQUEST_INSTALL_PACKAGES android/app/src/main/AndroidManifest.xml
           # avvisi degli aggiornamenti: permesso notifiche e WorkManager (controllo in secondo piano)
           sed -i 's#<uses-permission android:name="android.permission.INTERNET" />#<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />#' android/app/src/main/AndroidManifest.xml
           grep -c POST_NOTIFICATIONS android/app/src/main/AndroidManifest.xml
-          sed -i '0,/^dependencies {/s//dependencies {\n    implementation "androidx.work:work-runtime:2.9.1"\n    implementation "com.google.firebase:firebase-messaging:24.1.0"\n    implementation "androidx.credentials:credentials:1.3.0"\n    implementation "androidx.credentials:credentials-play-services-auth:1.3.0"\n    implementation "com.google.android.libraries.identity.googleid:googleid:1.1.1"/' android/app/build.gradle
+          sed -i '0,/^dependencies {/s//dependencies {\n    implementation "androidx.work:work-runtime:2.9.1"\n    implementation "com.google.firebase:firebase-messaging:24.1.0"\n    implementation "com.google.firebase:firebase-auth:23.1.0"\n    implementation "com.google.firebase:firebase-storage:21.0.1"\n    implementation "androidx.credentials:credentials:1.3.0"\n    implementation "androidx.credentials:credentials-play-services-auth:1.3.0"\n    implementation "com.google.android.libraries.identity.googleid:googleid:1.1.1"/' android/app/build.gradle
           grep -c "androidx.work:work-runtime" android/app/build.gradle
           grep -c "firebase-messaging" android/app/build.gradle
+          grep -c "firebase-auth" android/app/build.gradle
+          grep -c "firebase-storage" android/app/build.gradle
           # notifiche immediate (push, Firebase) e "Accedi con Google": configurazione del progetto Firebase. È nel
           # progetto (sta comunque dentro ogni APK); le impronte della firma le registra "Server della sincronizzazione"
           cp native/google-services.json android/app/google-services.json

@@ -35,7 +35,13 @@ import { senzaBloccare } from '../core/errori';
 import { numero, oggiIso } from '../core/formato';
 import { apriAggiornamento, controllaAggiornamento, installaAggiornamento } from '../nativo/aggiornamenti';
 import { Nativo, annullato, messaggio, nativo } from '../nativo/plugin';
-import { azioneAccedi, azioneEsci, azioneRinomina, azioneSincronizzaOra } from '../sync/interfaccia';
+import {
+  azioneAccedi,
+  azioneEsci,
+  azioneRinomina,
+  azioneSessioneNativa,
+  azioneSincronizzaOra,
+} from '../sync/interfaccia';
 import { annunciaOra, sincronizzazioneAttiva } from '../sync/sincronizzazione';
 import { muroAccedi, muroAncora, muroAperto, muroChiedi, muroEsci } from '../sync/muro';
 import { apriGestioneAccessi, azioneChiediAccesso, cambiaMuro, decidiAccesso } from '../viste/accesso';
@@ -484,6 +490,10 @@ async function azione(nome: string, d: Dati): Promise<void> {
       break;
     case 'syncaccedi':
       await azioneAccedi();
+      break;
+    case 'sessionenativa':
+      // passo 5: versione e catalogo li ricontrolla chi ha aperto il foglio, quando si chiude (main.ts, aggiornamenti.ts)
+      await azioneSessioneNativa();
       break;
     case 'syncnome':
       await azioneRinomina();
