@@ -1,0 +1,51 @@
+
+schermo: Physical size: 1080x2400
+android: 14
+installazione: Serving...
+Performing Incremental Install
+Success
+Install command complete in 1546 ms
+All files should be loaded. Notifying the device.
+trasporti backup: * com.android.localtransport/.LocalTransport
+Selected transport com.android.localtransport/.LocalTransport (formerly com.android.localtransport/.LocalTransport)
+emulatori di Firebase: no (server vero, senza sessione)
+  (chiusa una finestra di apertura dell'app)
+tocco "Mancanti": ok
+tocco "Catalogo": ok
+tocco "Elenco": ok
+tocco "Italia": ok (dopo aver scorso la pagina)
+tocco "1 cent": ok
+tocco "2002 R": ok
+[schermata] 01_vecchia_segnata.png
+tocco "Dettagli": ok
+tocco "Aggiungi alle preferite": ok
+[schermata] 02_vecchia_preferita.png
+tocco "Mancanti": ok
+OK  versione vecchia: segnata una moneta
+tocco "Collezione": ok
+OK  versione vecchia: aggiunta una preferita
+installazione sopra: Serving... Performing Incremental Install Success Install command complete in 211 ms All files should be loaded. Notifying the device.
+versione: 83 → 84
+OK  la versione nuova si installa sopra quella vecchia (stessa firma, numero più alto)
+[schermata] 03_nuova_avvio.png
+OK  dopo l'aggiornamento non ricompare il benvenuto del primo avvio
+  (chiusa una finestra di apertura dell'app)
+tocco "Mancanti": ok
+[schermata] 04_nuova_mancanti.png
+mancanti: prima 9836, dopo 9836
+tocco "Extra": ok
+[schermata] 05_nuova_extra.png
+monete segnate: 1, pezzi nel catalogo nuovo: 9950, varianti nella scheda Extra: 113, mancanti 9836 + varianti 113 = 9949, atteso 9949
+tocco "Catalogo": ok
+tocco "Elenco": ok
+tocco "Italia": ok (dopo aver scorso la pagina)
+tocco "1 cent": ok
+[schermata] 06_nuova_pezzo_segnato.png
+OK  dopo l'aggiornamento la moneta segnata è ancora segnata
+OK  dopo l'aggiornamento la collezione è ancora tutta lì (mancanti + varianti + segnate = pezzi del catalogo)
+tocco "Collezione": ok
+OK  dopo l'aggiornamento la preferita c'è ancora
+[schermata] 07_nuova_collezione.png
+OK  la versione nuova si apre e funziona senza errori ([])
+
+RISULTATO: TUTTO OK
