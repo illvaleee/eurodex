@@ -2,6 +2,7 @@ import { render } from 'lit-html';
 import { casuale } from '../core/rete';
 import { registraErrore } from '../core/errori';
 import { Nativo, nativo } from '../nativo/plugin';
+import { emulatoriNativi, modoProve } from '../nativo/prove';
 import { avviso } from '../ui/avvisi';
 import { schermataMuro } from '../viste/muro';
 import type { MotivoTentativo, StatoAccesso } from './accesso';
@@ -78,13 +79,7 @@ const acceso = (): boolean => obbligo || forzato;
  * scrivere le proprietà `debug.*`: con `debug.eurodex.prove=1` la schermata del muro non si mostra, e tutto il resto
  * (indirizzi, regole, sincronizzazione) resta vero. Nel browser non ci sono.
  */
-let modoProve: Promise<{ prove: boolean; muro: string }> | null = null;
-function prove(): Promise<{ prove: boolean; muro: string }> {
-  modoProve ??= nativo()
-    ? Nativo.modoProve().catch(() => ({ prove: false, muro: '' }))
-    : Promise.resolve({ prove: false, muro: '' });
-  return modoProve;
-}
+const prove = modoProve;
 let senzaSchermata = false;
 let esito: EsitoMuro = 'aperto';
 let utente: { uid: string; email: string; nome: string } | null = null;
@@ -121,7 +116,10 @@ async function leggiObbligo(attesaMs: number): Promise<boolean> {
   const ferma = new AbortController();
   const timer = setTimeout(() => ferma.abort(), attesaMs);
   try {
-    const r = await fetch(indirizzoConfig(location.search, nativo()), { cache: 'no-store', signal: ferma.signal });
+    const r = await fetch(indirizzoConfig(location.search, nativo(), emulatoriNativi()), {
+      cache: 'no-store',
+      signal: ferma.signal,
+    });
     if (r.status === 404) ricordaObbligo(false);
     else if (r.ok) ricordaObbligo(obbligoDaDocumento(await r.json()));
   } catch {

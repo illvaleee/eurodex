@@ -224,7 +224,10 @@ export async function apriGestioneAccessi(): Promise<void> {
   // durante le prove automatiche (un giro con tocchi a caso sul telefono di Valerio) il foglio non si apre: lì un tocco
   // accende il muro per tutti o decide di una persona vera, e a quella arriva la notifica (revisione di Claude 3)
   if (await inProvaAutomatica()) {
-    avviso('Durante le prove automatiche la gestione degli accessi non si apre', 5000);
+    avviso(
+      'Durante le prove automatiche la gestione degli accessi non si apre. Torna dopo il riavvio del telefono',
+      6000,
+    );
     return;
   }
   apriFoglio(html`

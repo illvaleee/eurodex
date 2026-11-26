@@ -40,10 +40,9 @@ export const TIRATURA_RARA = 100_000;
 /** Per quanti giorni una moneta appena entrata in catalogo resta "nuova". */
 export const GIORNI_NOVITA = 120;
 
-const REPO_DOWNLOAD = 'illvaleee/collezione-euro-download';
-/** Copia "raw" dei file pubblicati: veloce ma, per qualche minuto dopo una pubblicazione, a volte vecchia. */
-export const RAW_DOWNLOAD = `https://raw.githubusercontent.com/${REPO_DOWNLOAD}/main/`;
-/** API di GitHub: sempre aggiornata, si usa per i file piccoli che dicono "c'è qualcosa di nuovo". */
-export const API_DOWNLOAD = `https://api.github.com/repos/${REPO_DOWNLOAD}/contents/`;
+/** Il computer che fa girare il telefono simulato, visto dal telefono: lì ci sono gli emulatori di Firebase nelle prove
+ * dell'APK (debug.eurodex.emulatori=1, solo da adb). Dalla 1.0.84 versioni e catalogo non arrivano più dalla pagina di
+ * download pubblica ma da Storage (src/core/archivio.ts). */
+export const HOST_EMULATORI = '10.0.2.2';
 
 export const PACCHETTO_ANDROID = 'it.collezione.euro';

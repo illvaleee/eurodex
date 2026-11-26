@@ -11,6 +11,7 @@ import { $, necessario } from './core/dom';
 import { installaGestoreErrori, registraErrore } from './core/errori';
 import { avvisoAggiornamento, controllaAggiornamento } from './nativo/aggiornamenti';
 import { Nativo, nativo } from './nativo/plugin';
+import { modoProve } from './nativo/prove';
 import { leggiVersioneApp } from './nativo/versione';
 import { esponiPerLeProve } from './prove';
 import {
@@ -20,7 +21,9 @@ import {
   collegamentoConCodice,
   sincronizzazioneAttiva,
   stessoDispositivo,
+  sync,
 } from './sync/sincronizzazione';
+import { sessioneNativaPronta } from './sync/sessione-nativa';
 import { aggiornaMuro, controllaMuro, muroAcceso, preparaNotifiche } from './sync/muro';
 import { apriGestioneAccessi } from './viste/accesso';
 import { avviso } from './ui/avvisi';
@@ -44,6 +47,7 @@ import {
   firmaCatalogo,
   novitaVersione,
   propostaSincronizzazione,
+  ultimoPassoAccesso,
 } from './viste/finestre';
 
 /** Cosa fare quando si tocca una notifica: aggiornamento, modifica da un altro dispositivo, dati nuovi. */
@@ -102,6 +106,21 @@ async function leggiCatalogo(): Promise<CatalogoGrezzo> {
 async function finestreAvvio(aggiornamento: Promise<void>, muro: Promise<boolean>): Promise<void> {
   // muro acceso e account non approvato: solo la schermata per chiedere l'accesso, niente altre finestre
   if (await muro) return;
+  // passo 5: chi era già entrato con Google prima della 1.0.84 ha solo la sessione della parte web, ma versioni e
+  // catalogo si scaricano con quella nativa. La si apre con un tocco, chiesto al massimo una volta al giorno
+  const account = sync;
+  if (nativo() && account && Date.now() - (meta.ultimoPasso ?? 0) > 20 * 3600 * 1000) {
+    if (!(await sessioneNativaPronta(account.uid))) {
+      meta.ultimoPasso = Date.now();
+      salva();
+      await ultimoPassoAccesso(account.email);
+      // aperta adesso: i controlli di versione e catalogo fatti all'avvio non avevano la sessione, si rifanno
+      if (await sessioneNativaPronta(account.uid)) {
+        void aggiornaDatiOra(false);
+        await controllaAggiornamento(false, 4000);
+      }
+    }
+  }
   await aggiornamento;
   if (stato.update) await avvisoAggiornamento();
   if (!meta.benvenuto && !possedute.size) {
@@ -148,7 +167,8 @@ async function avvia(): Promise<void> {
     coloraBarre();
   });
   try {
-    await leggiVersioneApp();
+    // le prove automatiche via adb si conoscono prima di usare Firebase (con gli emulatori tutto va lì)
+    await Promise.all([leggiVersioneApp(), modoProve()]);
     const cat = await leggiCatalogo();
     costruisciIndice(cat, opzioniIndice());
     if (!tipi.length) throw new Error('catalogo vuoto');
